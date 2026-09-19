@@ -8,12 +8,12 @@
     130,
     105,
     3940,
-    3235
+    3170
   ],
   "scale_after_crop": 1.0,
   "output_size": [
     3810,
-    3130
+    3065
   ],
   "note": "crop_box is [left, top, right, bottom] in original scan pixels; output = source.crop(box) * scale"
 }

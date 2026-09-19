@@ -6,9 +6,9 @@
   ],
   "crop_box_source_px": [
     130,
-    598,
+    566,
     3940,
-    2741
+    2709
   ],
   "scale_after_crop": 1.0,
   "output_size": [
