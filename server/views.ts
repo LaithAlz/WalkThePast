@@ -71,8 +71,11 @@ async function openai(key: string, mime: string, dataBase64: string, text: strin
   return { mime: "image/png", dataBase64: b64 };
 }
 
-export function viewsApi(opts: { geminiKey?: string; openaiKey?: string }): Plugin {
-  const provider: "gemini" | "openai" | null = opts.geminiKey ? "gemini" : opts.openaiKey ? "openai" : null;
+export function viewsApi(opts: { geminiKey?: string; openaiKey?: string; prefer?: string }): Plugin {
+  // VIEW_PROVIDER=openai|gemini forces one; otherwise Gemini first, OpenAI as fallback when Gemini errors (quota, safety)
+  const order = (["gemini", "openai"] as const).filter((p) => (p === "gemini" ? opts.geminiKey : opts.openaiKey));
+  if (opts.prefer && order.includes(opts.prefer as "gemini" | "openai")) order.sort((a) => (a === opts.prefer ? -1 : 1));
+  const provider: "gemini" | "openai" | null = order[0] ?? null;
   const handler = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     const url = req.url ?? "";
     if (!url.startsWith("/api/views")) return next();
@@ -82,10 +85,23 @@ export function viewsApi(opts: { geminiKey?: string; openaiKey?: string }): Plug
         if (!provider) return send(res, 503, { error: "No image model key: set GEMINI_API_KEY or OPENAI_API_KEY in .env" });
         const body = await readJson<{ image: { mime: string; dataBase64: string }; context?: string; directions?: Direction[] }>(req);
         const dirs = body.directions?.length ? body.directions : (["right", "back", "left"] as Direction[]);
-        const gen = provider === "gemini" ? (t: string) => gemini(opts.geminiKey!, body.image.mime, body.image.dataBase64, t) : (t: string) => openai(opts.openaiKey!, body.image.mime, body.image.dataBase64, t);
+        const run = async (p: "gemini" | "openai", t: string) =>
+          p === "gemini" ? gemini(opts.geminiKey!, body.image.mime, body.image.dataBase64, t) : openai(opts.openaiKey!, body.image.mime, body.image.dataBase64, t);
+        const gen = async (t: string): Promise<{ mime: string; dataBase64: string; provider: string }> => {
+          let lastErr: unknown = new Error("no provider");
+          for (const p of order) {
+            try {
+              return { ...(await run(p, t)), provider: p };
+            } catch (e) {
+              lastErr = e;
+              console.warn(`[views] ${p} failed: ${e instanceof Error ? e.message.slice(0, 120) : e}`);
+            }
+          }
+          throw lastErr;
+        };
         const results = await Promise.allSettled(dirs.map((d) => gen(prompt(d, body.context))));
         const views = results.map((r, i) => ({ direction: dirs[i], azimuth: AZIMUTH[dirs[i]], ...(r.status === "fulfilled" ? r.value : { error: (r.reason as Error).message }) }));
-        return send(res, 200, { provider, views });
+        return send(res, 200, { provider: views.find((v) => "provider" in v && (v as { provider?: string }).provider)?.["provider" as keyof typeof views[0]] ?? provider, views });
       }
       return send(res, 404, { error: "no such route" });
     } catch (e) {
