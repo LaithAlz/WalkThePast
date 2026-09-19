@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
 import { Hud } from "./hud";
-import { listWorlds, loadManifest, type CameraPose, type Convention, type WorldManifest } from "./world";
+import { listWorlds, loadManifest, resolveAsset, type CameraPose, type Convention, type WorldManifest } from "./world";
 import "./style.css";
 
 // ---------------------------------------------------------------------------
@@ -335,8 +335,10 @@ async function loadWorld(id: string) {
   layout();
 
   const lod = params.has("lod") ? params.get("lod") !== "0" : manifest.splat.lod ?? true;
+  // ?splat=splat_500k.spz swaps in another tier from the same world folder (for quality/FPS comparisons)
+  const splatUrl = params.get("splat") ? resolveAsset(manifest.id, params.get("splat")!) : manifest.splat.url;
   try {
-    await mountSplat({ url: manifest.splat.url, lod });
+    await mountSplat({ url: splatUrl, lod });
   } catch (e) {
     hud.setStatus(`splat load failed: ${String(e)}`, "bad");
     return;

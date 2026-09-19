@@ -241,8 +241,9 @@ def main() -> None:
     except Exception:
         pass
 
-    # prefer 500k on the M1 demo laptop; the viewer can be pointed at other tiers by editing world.json
-    preferred = files.get("500k") or files.get("full_res") or files.get("default") or next(iter(files.values()))
+    # full_res (~2M splats) is far sharper up close; Spark's LoD keeps it at 60 fps on the M1.
+    # Other tiers stay on disk and can be viewed with ?splat=splat_500k.spz
+    preferred = files.get("full_res") or files.get("500k") or files.get("default") or next(iter(files.values()))
     manifest = {
         "id": args.id,
         "name": args.name or args.id,

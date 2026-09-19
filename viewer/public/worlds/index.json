@@ -1,18 +1,22 @@
 [
   {
+    "id": "marble-paris",
+    "name": "Marble \u00b7 Paris, rue Cardinale (Atget 1922)"
+  },
+  {
     "id": "marble-giza",
-    "name": "Marble · Giza"
+    "name": "Marble \u00b7 Giza"
   },
   {
     "id": "marble-giza-draft",
-    "name": "Marble · Giza (draft)"
+    "name": "Marble \u00b7 Giza (draft)"
   },
   {
     "id": "marble-sample-lane",
-    "name": "Marble sample · cobblestone lane (500k, CDN)"
+    "name": "Marble sample \u00b7 cobblestone lane (500k, CDN)"
   },
   {
     "id": "marble-sample-library",
-    "name": "Marble sample · library (500k, CDN)"
+    "name": "Marble sample \u00b7 library (500k, CDN)"
   }
 ]

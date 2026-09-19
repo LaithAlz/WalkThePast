@@ -3,7 +3,7 @@
   "name": "Giza (draft)",
   "generator": "marble",
   "splat": {
-    "url": "./splat_500k.spz",
+    "url": "./splat_full_res.spz",
     "convention": "opencv",
     "lod": true
   },
