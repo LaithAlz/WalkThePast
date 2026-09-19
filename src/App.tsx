@@ -11,7 +11,7 @@ type AuthMode = "login" | "signup";
 type SourceKind = "image" | "video" | "text";
 type UploadSource = { name: string; kind: SourceKind };
 /** `worldId` resolves to public/worlds/<id>/world.json. Without one the card is still a mock. */
-type SampleWorld = { title: string; place: string; date: string; evidence: string; image: string; note: string; quote: string; worldId?: string };
+type SampleWorld = { title: string; place: string; date: string; evidence: string; image: string; note: string; quote: string; worldId?: string; voicePreview?: boolean };
 
 const images = {
   atget: "/assets/atget-paris.jpg",
@@ -31,7 +31,7 @@ const worlds = [
 ];
 
 const sampleWorlds: SampleWorld[] = [
-  { title: "Giza Plateau", place: "GIZA, EGYPT", date: "", evidence: "LIVE PROVENANCE", image: "/worlds/marble-giza/source.jpg", note: "A real reconstruction — 1.92M Gaussians, classified against the source image as you walk.", quote: "You’re standing where the source camera stood.", worldId: "marble-giza" },
+  { title: "Giza Plateau", place: "GIZA, EGYPT", date: "", evidence: "LIVE PROVENANCE", image: "/worlds/marble-giza/source.jpg", note: "A real reconstruction — 1.92M Gaussians, classified against the source image as you walk.", quote: "You’re standing where the source camera stood.", worldId: "marble-giza", voicePreview: true },
   { title: "Rue Cardinale", place: "PARIS, FRANCE", date: "1922", evidence: "LIVE PROVENANCE", image: "/worlds/marble-paris-cropped/source.jpg", note: "Eugène Atget's plate, reconstructed from his camera position — 2M Gaussians classified against the photograph as you walk.", quote: "You’re standing where Atget stood.", worldId: "marble-paris-cropped" },
   { title: "Rue de la Montagne", place: "PARIS, FRANCE", date: "1898", evidence: "41% SOURCE-VISIBLE", image: images.atget, note: "A quiet Paris street, reconstructed from Atget's camera position.", quote: "You’re standing where the original photographer stood." },
   { title: "Rue Mouffetard", place: "PARIS, FRANCE", date: "1898", evidence: "41% SOURCE-VISIBLE", image: images.mouffetard, note: "Market life and facades along one of Paris's oldest streets.", quote: "The market continues beyond the edge of the original plate." },
@@ -82,7 +82,7 @@ export default function App() {
   if (screen === "making") return <Making sources={uploadSources} onLibrary={() => setScreen("library")} />;
   if (screen === "samples") return <SamplePicker onBack={() => setScreen("landing")} onChoose={chooseSample} />;
   if (screen === "library") return <Library onNew={() => setScreen("upload")} onExplore={explore} />;
-  if (screen === "explore") return <Explore world={activeSample} evidence={evidence} speaking={speaking} onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => setScreen(exploreReturn)} />;
+  if (screen === "explore") return <Explore world={activeSample} evidence={evidence} speaking={speaking} autoEnter={activeSample.voicePreview} voice={activeSample.voicePreview} onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => setScreen(exploreReturn)} />;
   return <Landing onUpload={() => setScreen("upload")} onLogin={() => openAuth("login")} onSignUp={() => openAuth("signup")} onExplore={() => setScreen("samples")} />;
 }
 
@@ -279,6 +279,7 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
         {infoOpen && <div className="explore-info-card">
           <p>World controls</p>
           <dl className="explore-shortcuts">
+            {voice && <div><dt>Click blob</dt><dd>Pause / resume</dd></div>}
             {live ? <>
               <div><dt>Drag</dt><dd>Look around</dd></div>
               <div><dt>W A S D</dt><dd>Walk</dd></div>

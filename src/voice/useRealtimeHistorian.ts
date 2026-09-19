@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HISTORIAN_INSTRUCTIONS, HISTORIAN_TOOLS, runHistorianTool, sceneMetadata, type HistorianSceneContext } from "./historian";
 import type { HistoricalEntity } from "../historian/entities";
+import { TimedNarrationPlayer } from "./TimedNarrationPlayer";
+import { splitNarrationText } from "./narrationText";
 
 export type VoiceStatus = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "error";
-
-const CAPTION_WORDS_PER_CARD = 14;
-const CAPTION_WORD_INTERVAL_MS = 256;
-
-type ServerEvent = {
-  type?: string;
-  delta?: string;
-  transcript?: string;
-  error?: { message?: string };
-  name?: string;
-  call_id?: string;
-  arguments?: string;
-  item?: { name?: string; call_id?: string; arguments?: string };
+type ResponseItem = {
+  id?: string; type?: string; name?: string; call_id?: string; arguments?: string;
+  content?: { type?: string; text?: string }[];
 };
+type ServerEvent = {
+  type?: string; response_id?: string; item_id?: string; content_index?: number;
+  delta?: string; text?: string; transcript?: string;
+  error?: { message?: string }; name?: string; call_id?: string; arguments?: string;
+  item?: ResponseItem;
+  response?: { id?: string; status?: string; output?: ResponseItem[]; status_details?: { error?: { message?: string } } };
+};
+type TextPart = { received: string; pending: string; done: boolean };
 
 export function useRealtimeHistorian(context: HistorianSceneContext) {
   const [status, setStatus] = useState<VoiceStatus>("idle");
@@ -26,99 +26,79 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
   const [isMicMuted, setIsMicMuted] = useState(true);
   const [canToggleMic, setCanToggleMic] = useState(false);
   const [canReplay, setCanReplay] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isTransportPaused, setIsTransportPaused] = useState(false);
   const [entities, setEntities] = useState<HistoricalEntity[]>([]);
   const contextRef = useRef(context);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef<TimedNarrationPlayer | null>(null);
+  const connectionRef = useRef<AbortController | null>(null);
+  const sessionGenerationRef = useRef(0);
+  const connectingRef = useRef(false);
   const handledCalls = useRef(new Set<string>());
-  const introCompleteRef = useRef(false);
+  const textPartsRef = useRef(new Map<string, TextPart>());
+  const activeResponseRef = useRef<string | null>(null);
+  const ignoredResponsesRef = useRef(new Set<string>());
+  const responseRequestedRef = useRef(false);
+  const cancelRequestedResponseRef = useRef(false);
+  const toolContinuationRef = useRef(false);
+  const userSpeakingRef = useRef(false);
   const userMutedRef = useRef(true);
-  const captionQueueRef = useRef<string[]>([]);
-  const captionWordsRef = useRef<string[]>([]);
-  const captionPartialRef = useRef("");
-  const captionTimerRef = useRef<number | null>(null);
-  const captionDoneRef = useRef(false);
-  const captionReceivedRef = useRef(false);
-  const captionHoldTicksRef = useRef(0);
   const pausedRef = useRef(false);
-
+  const pauseReasonsRef = useRef(new Set<"transport" | "detour">());
   useEffect(() => { contextRef.current = context; }, [context]);
 
-  const stopCaptionPlayback = useCallback(() => {
-    if (captionTimerRef.current !== null) window.clearInterval(captionTimerRef.current);
-    captionTimerRef.current = null;
-  }, []);
-
-  const resetCaptionPlayback = useCallback(() => {
-    stopCaptionPlayback();
-    captionQueueRef.current = [];
-    captionWordsRef.current = [];
-    captionPartialRef.current = "";
-    captionDoneRef.current = false;
-    captionReceivedRef.current = false;
-    captionHoldTicksRef.current = 0;
-  }, [stopCaptionPlayback]);
-
-  const startCaptionPlayback = useCallback(() => {
-    if (pausedRef.current || captionTimerRef.current !== null) return;
-
-    const revealNextWord = () => {
-      if (captionHoldTicksRef.current > 0) {
-        captionHoldTicksRef.current -= 1;
-        return;
-      }
-
-      const word = captionQueueRef.current.shift();
-      if (!word) {
-        if (captionDoneRef.current && captionTimerRef.current !== null) {
-          window.clearInterval(captionTimerRef.current);
-          captionTimerRef.current = null;
-        }
-        return;
-      }
-
-      const visibleWords = captionWordsRef.current.length >= CAPTION_WORDS_PER_CARD
-        ? [word]
-        : [...captionWordsRef.current, word];
-      captionWordsRef.current = visibleWords;
-      if (visibleWords.length === CAPTION_WORDS_PER_CARD) captionHoldTicksRef.current = 1;
-      setCaption(visibleWords.join(" "));
-    };
-
-    revealNextWord();
-    captionTimerRef.current = window.setInterval(revealNextWord, CAPTION_WORD_INTERVAL_MS);
-  }, []);
-
-  const queueCaptionDelta = useCallback((delta: string, flushPartial = false) => {
-    const combined = captionPartialRef.current + delta;
-    const pieces = combined.split(/\s+/);
-    const endsAtWordBoundary = /\s$/.test(combined);
-    captionPartialRef.current = endsAtWordBoundary ? "" : pieces.pop() ?? "";
-    captionQueueRef.current.push(...pieces.filter(Boolean));
-
-    if (flushPartial && captionPartialRef.current) {
-      captionQueueRef.current.push(captionPartialRef.current);
-      captionPartialRef.current = "";
+  const send = useCallback((event: { type: string; [key: string]: unknown }) => {
+    const channel = channelRef.current;
+    if (channel?.readyState === "open") {
+      if (event.type === "response.create") responseRequestedRef.current = true;
+      channel.send(JSON.stringify(event));
     }
-    startCaptionPlayback();
-  }, [startCaptionPlayback]);
+  }, []);
+
+  const interruptNarration = useCallback(() => {
+    if (responseRequestedRef.current) cancelRequestedResponseRef.current = true;
+    const responseId = activeResponseRef.current;
+    if (responseId) {
+      ignoredResponsesRef.current.add(responseId);
+      send({ type: "response.cancel", response_id: responseId });
+    }
+    activeResponseRef.current = null;
+    toolContinuationRef.current = false;
+    textPartsRef.current.clear();
+    playerRef.current?.reset();
+    setCanReplay(false);
+    setCaption("");
+  }, [send]);
 
   const disconnect = useCallback(() => {
+    // Fence setup, channel events, and pending audio requests before releasing resources.
+    sessionGenerationRef.current += 1;
+    connectionRef.current?.abort();
+    connectionRef.current = null;
+    connectingRef.current = false;
+    const player = playerRef.current;
+    playerRef.current = null;
+    player?.dispose();
     channelRef.current?.close();
     peerRef.current?.close();
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    if (audioRef.current) audioRef.current.srcObject = null;
+    streamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
     channelRef.current = null;
     peerRef.current = null;
     streamRef.current = null;
-    audioRef.current = null;
     handledCalls.current.clear();
-    introCompleteRef.current = false;
+    textPartsRef.current.clear();
+    ignoredResponsesRef.current.clear();
+    activeResponseRef.current = null;
+    responseRequestedRef.current = false;
+    cancelRequestedResponseRef.current = false;
+    toolContinuationRef.current = false;
+    userSpeakingRef.current = false;
     userMutedRef.current = true;
     pausedRef.current = false;
-    resetCaptionPlayback();
+    pauseReasonsRef.current.clear();
     setStatus("idle");
     setCaption("");
     setUserCaption("");
@@ -126,60 +106,65 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
     setIsMicMuted(true);
     setCanToggleMic(false);
     setCanReplay(false);
-  }, [resetCaptionPlayback]);
-
+    setIsPaused(false);
+    setIsTransportPaused(false);
+  }, []);
   useEffect(() => disconnect, [disconnect]);
 
-  const send = useCallback((event: unknown) => {
-    const channel = channelRef.current;
-    if (channel?.readyState === "open") channel.send(JSON.stringify(event));
-  }, []);
+  const fail = useCallback((message: string) => {
+    disconnect();
+    setError(message);
+    setStatus("error");
+  }, [disconnect]);
 
   const replayLastSentence = useCallback(() => {
-    if (!canReplay || status !== "listening") return;
-    setCanReplay(false);
-    send({
-      type: "response.create",
-      response: {
-        output_modalities: ["audio"],
-        instructions: "Repeat only the final complete sentence from your immediately previous spoken response, verbatim. Do not add an introduction, explanation, or follow-up question.",
-      },
-    });
-  }, [canReplay, send, status]);
+    if (pausedRef.current || activeResponseRef.current || responseRequestedRef.current || status !== "listening") return;
+    if (playerRef.current?.replayLast()) setCanReplay(false);
+  }, [status]);
 
-  const toggleMic = useCallback(() => {
-    if (!introCompleteRef.current || !streamRef.current) return;
-    const audioTracks = streamRef.current.getAudioTracks().filter((track) => track.readyState === "live");
-    if (!audioTracks.length) {
+  const setMicrophoneMuted = useCallback((nextMuted: boolean) => {
+    if (!streamRef.current || (!nextMuted && pausedRef.current)) return;
+    const tracks = streamRef.current.getAudioTracks().filter((track) => track.readyState === "live");
+    if (!tracks.length) {
       setIsMicMuted(true);
       setCanToggleMic(false);
       setError("No live microphone track is available. Reconnect the historian.");
       return;
     }
-    const nextMuted = !userMutedRef.current;
+    if (!nextMuted) {
+      interruptNarration();
+      setStatus("listening");
+    }
     userMutedRef.current = nextMuted;
-    audioTracks.forEach((track) => { track.enabled = !nextMuted; });
-    const actuallyMuted = audioTracks.every((track) => !track.enabled);
-    userMutedRef.current = actuallyMuted;
-    setIsMicMuted(actuallyMuted);
+    tracks.forEach((track) => { track.enabled = !nextMuted && !pausedRef.current; });
+    setIsMicMuted(nextMuted);
     if (nextMuted) setUserCaption("");
-  }, []);
+  }, [interruptNarration]);
+  const toggleMic = useCallback(() => { setMicrophoneMuted(!userMutedRef.current); }, [setMicrophoneMuted]);
 
-  const pause = useCallback(() => {
+  const pause = useCallback((reason: "transport" | "detour" = "transport") => {
+    pauseReasonsRef.current.add(reason);
+    if (reason === "transport") setIsTransportPaused(true);
+    setIsPaused(true);
     if (pausedRef.current) return;
     pausedRef.current = true;
-    stopCaptionPlayback();
-    audioRef.current?.pause();
+    playerRef.current?.pause();
     streamRef.current?.getAudioTracks().forEach((track) => { track.enabled = false; });
-  }, [stopCaptionPlayback]);
-
-  const resume = useCallback(() => {
+  }, []);
+  const resume = useCallback((reason: "transport" | "detour" = "transport") => {
+    pauseReasonsRef.current.delete(reason);
+    if (reason === "transport") setIsTransportPaused(false);
+    if (pauseReasonsRef.current.size) return;
+    setIsPaused(false);
     if (!pausedRef.current) return;
     pausedRef.current = false;
-    if (audioRef.current) void audioRef.current.play().catch(() => undefined);
-    if (introCompleteRef.current) streamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !userMutedRef.current; });
-    startCaptionPlayback();
-  }, [startCaptionPlayback]);
+    playerRef.current?.resume();
+    streamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !userMutedRef.current; });
+  }, []);
+  const togglePlayback = useCallback(() => {
+    if (pauseReasonsRef.current.has("transport")) resume("transport");
+    else pause("transport");
+  }, [pause, resume]);
 
   const answerTool = useCallback((event: ServerEvent) => {
     const call = event.item ?? event;
@@ -194,146 +179,225 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
     }
     const output = runHistorianTool(call.name || "", args, contextRef.current);
     send({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) } });
-    send({ type: "response.create", response: { output_modalities: ["audio"] } });
+    // Parallel tool calls cause one continuation after the originating response ends.
+    toolContinuationRef.current = true;
   }, [send]);
 
+  const queueText = useCallback((event: ServerEvent, final: boolean) => {
+    const key = (event.item_id ?? event.response_id) + ":" + (event.content_index ?? 0);
+    const part = textPartsRef.current.get(key) ?? { received: "", pending: "", done: false };
+    if (part.done) return;
+    if (final && event.text !== undefined && !event.text.startsWith(part.received)) {
+      throw new Error("The historian text changed while speech was being prepared. Please reconnect.");
+    }
+    const delta = final ? event.text?.slice(part.received.length) ?? "" : event.delta ?? "";
+    part.received += delta;
+    const { clips, remainder } = splitNarrationText(part.pending + delta, final);
+    part.pending = remainder;
+    part.done = final;
+    textPartsRef.current.set(key, part);
+    for (const clip of clips) playerRef.current?.enqueue(clip);
+  }, []);
+
   const handleEvent = useCallback((event: ServerEvent) => {
+    const responseId = event.response_id ?? event.response?.id;
+    if (responseId && ignoredResponsesRef.current.has(responseId)) return;
+    if (event.type?.startsWith("response.") && event.type !== "response.created" && responseId !== activeResponseRef.current) return;
     switch (event.type) {
       case "input_audio_buffer.speech_started":
-        setStatus("listening"); setUserCaption("Listening…"); break;
+        if (pausedRef.current) break;
+        userSpeakingRef.current = true;
+        interruptNarration();
+        setStatus("listening");
+        setUserCaption("Listening…");
+        break;
       case "input_audio_buffer.speech_stopped":
-        setStatus("thinking"); break;
+        userSpeakingRef.current = false;
+        if (!pausedRef.current) setStatus("thinking");
+        break;
       case "conversation.item.input_audio_transcription.delta":
-        setUserCaption((current) => (current === "Listening…" ? "" : current) + (event.delta || "")); break;
+        setUserCaption((current) => (current === "Listening…" ? "" : current) + (event.delta || ""));
+        break;
       case "conversation.item.input_audio_transcription.completed":
-        setUserCaption(event.transcript || ""); setStatus("thinking"); break;
+        setUserCaption(event.transcript || "");
+        break;
       case "response.created":
-        resetCaptionPlayback();
-        setCaption("");
-        setStatus("thinking");
-        startCaptionPlayback();
-        break;
-      case "response.output_audio_transcript.delta":
-        captionReceivedRef.current = true;
-        queueCaptionDelta(event.delta || "");
-        setStatus("speaking");
-        break;
-      case "response.output_audio_transcript.done":
-        queueCaptionDelta(captionReceivedRef.current ? "" : event.transcript || "", true);
-        captionDoneRef.current = true;
-        setCanReplay(true);
-        break;
-      case "output_audio_buffer.stopped":
-        if (!introCompleteRef.current) {
-          introCompleteRef.current = true;
-          streamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !userMutedRef.current; });
-          setIsMicMuted(userMutedRef.current);
-          setCanToggleMic(true);
+        if (!responseId) break;
+        responseRequestedRef.current = false;
+        if (userSpeakingRef.current || cancelRequestedResponseRef.current) {
+          cancelRequestedResponseRef.current = false;
+          ignoredResponsesRef.current.add(responseId);
+          send({ type: "response.cancel", response_id: responseId });
+          break;
         }
-        setStatus("listening"); break;
+        activeResponseRef.current = responseId;
+        textPartsRef.current.clear();
+        setCanReplay(false);
+        if (playerRef.current?.state !== "playing") setStatus("thinking");
+        break;
+      case "response.output_text.delta":
+        queueText(event, false);
+        break;
+      case "response.output_text.done":
+        queueText(event, true);
+        break;
       case "response.function_call_arguments.done":
-        answerTool(event); break;
+        answerTool(event);
+        break;
+      case "response.done": {
+        activeResponseRef.current = null;
+        if (event.response?.status === "failed") {
+          fail(event.response.status_details?.error?.message || "The historian could not finish its response.");
+          break;
+        }
+        if (event.response?.status === "cancelled" || event.response?.status === "incomplete") {
+          interruptNarration();
+          setStatus("listening");
+          break;
+        }
+        for (const item of event.response?.output ?? []) {
+          if (item.type === "function_call") answerTool({ item });
+          item.content?.forEach((part, index) => {
+            if (part.type === "output_text" || part.type === "text") queueText({ response_id: responseId, item_id: item.id, content_index: index, text: part.text }, true);
+          });
+        }
+        if (toolContinuationRef.current) {
+          toolContinuationRef.current = false;
+          send({ type: "response.create", response: { output_modalities: ["text"] } });
+        } else {
+          // Network generation completion is independent of local playback completion.
+          playerRef.current?.finish();
+          if (playerRef.current?.state === "idle") setStatus("listening");
+        }
+        break;
+      }
       case "error":
-        setError(event.error?.message || "Realtime voice error"); setStatus("error"); break;
+        fail(event.error?.message || "Realtime voice error");
+        break;
     }
-  }, [answerTool, queueCaptionDelta, resetCaptionPlayback, startCaptionPlayback]);
+  }, [answerTool, fail, interruptNarration, queueText, send]);
 
   const connect = useCallback(async () => {
-    if (status !== "idle" && status !== "error") { disconnect(); return; }
-    userMutedRef.current = true;
-    setIsMicMuted(true);
-    setCanToggleMic(false);
-    setCanReplay(false);
-    setStatus("connecting"); setError(""); setCaption("");
+    if (connectingRef.current || channelRef.current?.readyState === "open") return;
+    const pauseReasons = new Set(pauseReasonsRef.current);
+    disconnect();
+    pauseReasonsRef.current = pauseReasons;
+    pausedRef.current = pauseReasons.size > 0;
+    setIsPaused(pausedRef.current);
+    setIsTransportPaused(pauseReasons.has("transport"));
+    connectingRef.current = true;
+    const generation = sessionGenerationRef.current;
+    const controller = new AbortController();
+    connectionRef.current = controller;
+    const current = () => generation === sessionGenerationRef.current && !controller.signal.aborted;
+    setStatus("connecting");
+    setError("");
     try {
-      const [tokenResponse, imageResponse, stream] = await Promise.all([
-        fetch("/api/realtime/session", { method: "POST" }),
-        fetch(contextRef.current.world.sourceImage),
-        navigator.mediaDevices.getUserMedia({ audio: true }),
+      const player = new TimedNarrationPlayer({
+        load: async (text, signal) => {
+          const response = await fetch("/api/realtime/narration", {
+            method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+          });
+          if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "Could not prepare synchronized speech.");
+          return response.json();
+        },
+        onCaption: (text) => { if (current()) setCaption(text); },
+        onState: (state) => {
+          if (current() && state !== "idle") setStatus(state === "playing" ? "speaking" : "thinking");
+        },
+        onReplayAvailable: (available) => { if (current()) setCanReplay(available); },
+        onComplete: () => {
+          if (!current() || activeResponseRef.current || responseRequestedRef.current || toolContinuationRef.current) return;
+          setStatus("listening");
+          setCanReplay(player.canReplay);
+        },
+        onError: (reason) => { if (current()) fail(reason.message); },
+      });
+      playerRef.current = player;
+      if (pausedRef.current) player.pause();
+      const [tokenResponse, imageResponse] = await Promise.all([
+        fetch("/api/realtime/session", { method: "POST", signal: controller.signal }),
+        fetch(contextRef.current.world.sourceImage, { signal: controller.signal }),
       ]);
+      if (!current()) return;
       if (!tokenResponse.ok) throw new Error((await tokenResponse.json().catch(() => null))?.error || "Could not create a voice session");
       const tokenData = await tokenResponse.json() as { value?: string; client_secret?: { value?: string } };
       const ephemeralKey = tokenData.value ?? tokenData.client_secret?.value;
       if (!ephemeralKey) throw new Error("The voice session did not return a client credential");
-      if (!imageResponse.ok) throw new Error("Could not load the Giza source image");
-      streamRef.current = stream;
-      stream.getAudioTracks().forEach((track) => {
-        track.onended = () => {
-          setIsMicMuted(true);
-          setCanToggleMic(false);
-          setError("Microphone access ended. Reconnect the historian to speak again.");
-        };
-      });
-      // The historian speaks first. Keep the negotiated mic track silent until the
-      // opening audio has actually finished playing, then enable normal VAD turns.
-      stream.getAudioTracks().forEach((track) => { track.enabled = false; });
+      if (!imageResponse.ok) throw new Error("Could not load the source image");
       const imageDataUrl = await blobToDataUrl(await imageResponse.blob());
-
+      if (!current()) return;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!current()) { stream.getTracks().forEach((track) => track.stop()); return; }
+      streamRef.current = stream;
+      setCanToggleMic(true);
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+        track.onended = () => { if (current()) fail("Microphone access ended. Reconnect the historian to speak again."); };
+      });
       const peer = new RTCPeerConnection();
       peerRef.current = peer;
-      const audio = new Audio();
-      audio.autoplay = true;
-      audioRef.current = audio;
-      peer.ontrack = (event) => { audio.srcObject = event.streams[0]; };
-      peer.onconnectionstatechange = () => {
-        if (peer.connectionState === "failed" || peer.connectionState === "disconnected") {
-          setError("Voice connection lost. Tap to reconnect."); setStatus("error");
-        }
-      };
+      // WebRTC carries the microphone. Never autoplay independent remote audio.
       stream.getTracks().forEach((track) => peer.addTrack(track, stream));
-
+      peer.onconnectionstatechange = () => {
+        if (current() && (peer.connectionState === "failed" || peer.connectionState === "disconnected")) fail("Voice connection lost. Tap to reconnect.");
+      };
       const channel = peer.createDataChannel("oai-events");
       channelRef.current = channel;
-      channel.onmessage = (message) => handleEvent(JSON.parse(message.data) as ServerEvent);
-      channel.onerror = () => { setError("Voice event channel failed."); setStatus("error"); };
+      channel.onmessage = (message) => {
+        if (!current()) return;
+        try { handleEvent(JSON.parse(message.data) as ServerEvent); }
+        catch (reason) { fail(reason instanceof Error ? reason.message : "Invalid historian event."); }
+      };
+      channel.onerror = () => { if (current()) fail("Voice event channel failed."); };
+      channel.onclose = () => { if (current()) fail("Voice connection closed. Tap to reconnect."); };
       channel.onopen = () => {
+        if (!current()) return;
+        connectingRef.current = false;
         setStatus("thinking");
         send({
           type: "session.update",
-          session: { type: "realtime", instructions: HISTORIAN_INSTRUCTIONS, tools: HISTORIAN_TOOLS, tool_choice: "auto" },
+          session: { type: "realtime", output_modalities: ["text"], instructions: HISTORIAN_INSTRUCTIONS + "\nYour text will be spoken aloud. Return plain spoken prose without Markdown formatting.", tools: HISTORIAN_TOOLS, tool_choice: "auto" },
         });
         send({
           type: "conversation.item.create",
           item: {
-            type: "message",
-            role: "user",
+            type: "message", role: "user",
             content: [
               { type: "input_image", image_url: imageDataUrl },
-              { type: "input_text", text: `Here is the source image and metadata for the world I just entered: ${sceneMetadata(contextRef.current)}` },
+              { type: "input_text", text: "Here is the source image and metadata for the world I just entered: " + sceneMetadata(contextRef.current) },
             ],
           },
         });
         send({
           type: "response.create",
           response: {
-            output_modalities: ["audio"],
+            output_modalities: ["text"],
             instructions: "Give the historical opening now. Lead with established facts about the Giza Plateau and its Old Kingdom pyramid complexes, then invite the visitor to ask a question. Do not mention the image, reconstruction, technology, provenance, or source limitations in this opening.",
           },
         });
       };
-
       const offer = await peer.createOffer();
+      if (!current()) return;
       await peer.setLocalDescription(offer);
       const answerResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
-        method: "POST",
-        body: offer.sdp,
-        headers: { Authorization: `Bearer ${ephemeralKey}`, "Content-Type": "application/sdp" },
+        method: "POST", body: offer.sdp, signal: controller.signal,
+        headers: { Authorization: "Bearer " + ephemeralKey, "Content-Type": "application/sdp" },
       });
       const answerBody = await answerResponse.text();
+      if (!current()) return;
       if (!answerResponse.ok) {
         let detail = "";
-        try { detail = (JSON.parse(answerBody) as { error?: { message?: string } }).error?.message ?? ""; } catch { detail = ""; }
-        throw new Error(detail || `WebRTC setup failed (${answerResponse.status})`);
+        try { detail = (JSON.parse(answerBody) as { error?: { message?: string } }).error?.message ?? ""; } catch { /* Use status below. */ }
+        throw new Error(detail || "WebRTC setup failed (" + answerResponse.status + ")");
       }
       await peer.setRemoteDescription({ type: "answer", sdp: answerBody });
     } catch (reason) {
-      disconnect();
-      setError(reason instanceof Error ? reason.message : "Unable to start voice");
-      setStatus("error");
+      if (current()) fail(reason instanceof Error ? reason.message : "Unable to start voice");
     }
-  }, [disconnect, handleEvent, send, status]);
+  }, [disconnect, fail, handleEvent, send]);
 
-  return { status, caption, userCaption, error, entities, isMicMuted, canToggleMic, canReplay, replayLastSentence, toggleMic, connect, disconnect, pause, resume };
+  return { status, caption, userCaption, error, entities, isMicMuted, canToggleMic, canReplay, isPaused, isTransportPaused, replayLastSentence, setMicrophoneMuted, toggleMic, togglePlayback, connect, disconnect, pause, resume };
 }
 
 function historicalEntityFromTool(args: Record<string, unknown>): HistoricalEntity | null {

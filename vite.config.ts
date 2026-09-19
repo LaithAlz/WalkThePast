@@ -1,6 +1,7 @@
-import { defineConfig, loadEnv, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Connect, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+import { createNarrationHandler } from "./server/narration.ts";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -22,7 +23,8 @@ export default defineConfig(({ mode }) => {
 
 function realtimeSessionEndpoint(apiKey: string | undefined, configuredModel: string | undefined): Plugin {
   const model = configuredModel || "gpt-realtime-2.1";
-  const install = (middlewares: { use: (route: string, handler: (req: { method?: string }, res: { statusCode: number; setHeader: (name: string, value: string) => void; end: (body?: string) => void }, next: () => void) => void) => void }) => {
+  const install = (middlewares: Connect.Server) => {
+    middlewares.use("/api/realtime/narration", createNarrationHandler({ apiKey }));
     middlewares.use("/api/realtime/session", async (req, res, next) => {
       if (req.method !== "POST") return next();
       res.setHeader("Content-Type", "application/json");
@@ -40,6 +42,7 @@ function realtimeSessionEndpoint(apiKey: string | undefined, configuredModel: st
             session: {
               type: "realtime",
               model,
+              output_modalities: ["text"],
               audio: {
                 input: {
                   transcription: { model: "gpt-4o-mini-transcribe" },

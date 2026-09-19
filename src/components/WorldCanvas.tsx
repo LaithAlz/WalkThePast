@@ -15,13 +15,7 @@ type Props = {
   onSnapshot?: (dataUrl: string) => void;
 };
 
-/**
- * The stage is letterboxed to the photograph's aspect so the photo overlay and the
- * rendered view share the exact same frame: that is what makes the crossfade from
- * the photograph into the photographer's pose line up.
- */
 export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot }: Props) {
-  const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLImageElement>(null);
@@ -31,7 +25,6 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
   const [status, setStatus] = useState<ViewerStatus>({ kind: "idle" });
   const [manifest, setManifest] = useState<WorldManifest | null>(null);
   const [mode, setMode] = useState<Mode>("photo");
-  const [aspect, setAspect] = useState<number | null>(null);
 
   // Callbacks change identity every render; keep them in a ref so the viewer is
   // built once rather than torn down and rebuilt on each parent render.
@@ -53,7 +46,6 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
       onStatus: setStatus,
       onManifest: (m) => {
         setManifest(m);
-        setAspect(null);
         transition.showPhoto();
         viewer.setInteractive(false);
       },
@@ -113,31 +105,10 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
     await t.enterWorld();
   };
 
-  // the photo is known once the viewer has measured it; letterbox the stage to it
   useEffect(() => {
     if (status.kind !== "ready") return;
-    setAspect(viewerRef.current?.photoAspect ?? null);
     if (autoEnter || !manifest?.source?.image) void enter(); // preview routes skip the photo landing
   }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const host = hostRef.current;
-    const stage = stageRef.current;
-    if (!host || !stage) return;
-    const fit = () => {
-      const W = host.clientWidth, H = host.clientHeight;
-      const a = aspect ?? W / H;
-      let w = W, h = W / a;
-      if (h > H) { h = H; w = H * a; }
-      stage.style.width = `${Math.round(w)}px`;
-      stage.style.height = `${Math.round(h)}px`;
-      viewerRef.current?.resize();
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(host);
-    return () => ro.disconnect();
-  }, [aspect]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -158,7 +129,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
   const meta = [credit.photographer, credit.year, credit.place].filter(Boolean).join(" · ");
 
   return (
-    <div className="explore-host" ref={hostRef}>
+    <div className="explore-host">
       <div className="explore-stage" ref={stageRef}>
         <canvas ref={canvasRef} className="explore-canvas" />
         <img
