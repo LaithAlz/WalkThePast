@@ -3,13 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Walk the Past — Phase 0 viewer</title>
+    <title>Walk the Past</title>
   </head>
   <body>
     <div id="app">
       <div id="stage">
         <canvas id="c"></canvas>
         <img id="overlay" alt="" draggable="false" />
+        <div id="wipe-handle" title="drag to compare"><span></span></div>
+        <div id="landing">
+          <div class="card">
+            <div class="eyebrow">Walk the Past</div>
+            <h1 id="landing-title">—</h1>
+            <div id="landing-meta" class="meta"></div>
+            <button id="enter">Walk into the photograph</button>
+            <div class="hint">Enter ↵ · or press A on a gamepad</div>
+          </div>
+        </div>
+        <div id="hints">
+          <span><kbd>click</kbd> look</span><span><kbd>W A S D</kbd> walk</span><span><kbd>Shift</kbd> run</span>
+          <span><kbd>R</kbd> photographer</span><span><kbd>Tab</kbd> hold: photograph</span><span><kbd>V</kbd> wipe</span><span><kbd>H</kbd> dev</span>
+        </div>
+        <div id="toast"></div>
       </div>
       <div id="hud"></div>
       <div id="drop-hint">Drop a .ply / .spz here to view it</div>

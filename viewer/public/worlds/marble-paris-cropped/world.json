@@ -1,6 +1,6 @@
 {
   "id": "marble-paris-cropped",
-  "name": "Paris, rue Cardinale 1922 (cropped)",
+  "name": "Rue Cardinale, Paris, 1922",
   "generator": "marble",
   "splat": {
     "url": "./splat_full_res.spz",
@@ -38,5 +38,12 @@
   },
   "bounds": {
     "radiusM": 3.5
+  },
+  "credit": {
+    "title": "Rue Cardinale",
+    "photographer": "Eugène Atget",
+    "year": "1922",
+    "place": "Paris, 6e",
+    "licence": "Getty Museum Open Content · public domain"
   }
 }

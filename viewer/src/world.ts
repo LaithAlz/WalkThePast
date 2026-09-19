@@ -54,6 +54,8 @@ export interface WorldManifest {
   pano?: { url: string; yawDeg?: number } | null;
   /** Soft walk limit around the photographer, in world units (metres for metric worlds). */
   bounds?: { radiusM?: number } | null;
+  /** Shown on the landing card: title / photographer / year / place / licence. */
+  credit?: { title?: string; photographer?: string; year?: string; place?: string; licence?: string } | null;
   notes?: string;
 }
 

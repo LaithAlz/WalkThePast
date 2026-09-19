@@ -38,5 +38,12 @@
   },
   "bounds": {
     "radiusM": 3.5
+  },
+  "credit": {
+    "title": "Giza plateau",
+    "photographer": "illustration, artist unknown",
+    "year": "",
+    "place": "Egypt",
+    "licence": "stock illustration · 512 px test input"
   }
 }

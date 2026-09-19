@@ -5,7 +5,6 @@ type Slider = { input: HTMLInputElement; out: HTMLOutputElement };
 export interface HudCallbacks {
   onWorldChange(id: string): void;
   onOverlay(opacity: number): void;
-  onWipe(percent: number): void;
   onFov(deg: number): void;
   onSpeed(v: number): void;
   onReset(): void;
@@ -14,6 +13,9 @@ export interface HudCallbacks {
   onFlip(): void;
   onGrid(): void;
   onBench(): void;
+  onCache(): void;
+  onWipe(): void;
+  onPhoto(): void;
 }
 
 export class Hud {
@@ -46,7 +48,7 @@ export class Hud {
 
     const stats = document.createElement("div");
     stats.className = "stats";
-    for (const k of ["fps", "frame", "splats", "gen", "conv", "cam", "fov", "radius"]) {
+    for (const k of ["fps", "frame", "splats", "gen", "conv", "cam", "fov", "radius", "cache"]) {
       const a = document.createElement("span");
       a.textContent = k;
       const b = document.createElement("span");
@@ -57,7 +59,6 @@ export class Hud {
     root.append(stats);
 
     this.slider("overlay", 0, 1, 0.01, 0, (v) => cb.onOverlay(v));
-    this.slider("wipe", 0, 100, 1, 100, (v) => cb.onWipe(v), "%");
     this.slider("fov", 20, 120, 0.5, 60, (v) => cb.onFov(v), "°");
     this.slider("speed", 0.2, 10, 0.1, 2, (v) => cb.onSpeed(v), "m/s");
 
@@ -75,6 +76,9 @@ export class Hud {
     mk("Flip axes (F)", cb.onFlip);
     mk("Grid (G)", cb.onGrid);
     mk("Bench 10s (B)", cb.onBench);
+    mk("Wipe (V)", cb.onWipe);
+    mk("Show photo", cb.onPhoto);
+    mk("Cache world offline", cb.onCache);
     root.append(btns);
 
     this.textarea = document.createElement("textarea");
@@ -85,7 +89,7 @@ export class Hud {
     const help = document.createElement("div");
     help.className = "help";
     help.innerHTML =
-      "<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Q</kbd><kbd>E</kbd> down/up · drag to look · " +
+      "<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Q</kbd><kbd>E</kbd> down/up · click to look (Esc frees) · " +
       "<kbd>Shift</kbd> faster · <kbd>O</kbd> overlay 0/50/100 · <kbd>[</kbd><kbd>]</kbd> fov · " +
       "<kbd>R</kbd> photographer · <kbd>C</kbd> copy cam · <kbd>L</kbd> save · <kbd>F</kbd> flip · <kbd>G</kbd> grid · <kbd>B</kbd> bench · <kbd>X</kbd> walk radius";
     root.append(help);

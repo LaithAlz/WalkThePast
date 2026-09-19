@@ -1,11 +1,15 @@
 /**
- * Phase 0 viewer: load a generated world (Marble or Lyra), render it with
- * Spark inside three.js, measure FPS, and test whether the original
- * photograph's camera can be recreated inside the generated scene.
+ * Walk the Past viewer.
+ * Phase 0: load a generated world (Marble), render with Spark, measure FPS, align the photographer.
+ * Phase 1: photograph -> crossfade into the matching 3D pose -> first-person walking,
+ *          photo/world wipe, animated reset-to-photographer, offline cache for the hero world.
  */
 import * as THREE from "three";
-import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { Hud } from "./hud";
+import { FirstPersonControls, isTyping } from "./controls";
+import { PhotoTransition } from "./transition";
+import { isWorldCached, prefetchWorld, registerWorker } from "./cache";
 import { listWorlds, loadManifest, resolveAsset, type CameraPose, type Convention, type WorldManifest } from "./world";
 import "./style.css";
 
@@ -16,6 +20,14 @@ const app = document.getElementById("app")!;
 const stage = document.getElementById("stage")!;
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const overlay = document.getElementById("overlay") as HTMLImageElement;
+const landing = document.getElementById("landing")!;
+const landingTitle = document.getElementById("landing-title")!;
+const landingMeta = document.getElementById("landing-meta")!;
+const enterBtn = document.getElementById("enter") as HTMLButtonElement;
+const toastEl = document.getElementById("toast")!;
+
+const params = new URLSearchParams(location.search);
+if (params.get("dev") === "1") app.classList.add("dev");
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -27,8 +39,6 @@ const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 1000);
 scene.add(camera);
 
 // Render budget: Marble's own viewer draws every splat; Spark's default LoD budget is 1.5M.
-// ?budget=1500000 to compare, ?lod=0 to bypass LoD entirely.
-const params = new URLSearchParams(location.search);
 const budget = Number(params.get("budget") ?? 3_000_000);
 const spark = new SparkRenderer({ renderer, lodSplatCount: budget });
 scene.add(spark);
@@ -36,7 +46,7 @@ scene.add(spark);
 /**
  * Scene graph:
  *   worldRoot   – convention transform (OpenCV -> three.js is a 180° turn about X)
- *     metricGroup – Marble metric scale + ground-plane offset (identity for Lyra)
+ *     metricGroup – Marble metric scale + ground-plane offset
  *       splatMesh
  *       photographer – empty at the splat origin = where the source camera sat
  */
@@ -66,15 +76,37 @@ let benchmarking = false;
 let walkRadius = 0; // 0 = unlimited
 const photographerPos = new THREE.Vector3();
 let panoTex: THREE.Texture | null = null;
+let flight: { from: CameraPose; to: CameraPose; t0: number; ms: number } | null = null;
 
 // ---------------------------------------------------------------------------
-// Controls (WASD / QE / drag-look) from Spark
+// Controls + presentation
 // ---------------------------------------------------------------------------
-const controls = new SparkControls({ canvas });
-controls.fpsMovement.moveSpeed = 2;
+const controls = new FirstPersonControls(canvas, camera);
+const transition = new PhotoTransition(overlay, document.getElementById("wipe-handle")!, stage);
+
+controls.onLockChange = (locked) => app.classList.toggle("locked", locked);
+controls.onPadButton = (i) => {
+  if (transition.mode === "photo" && i === 0) void enterWorld(); // A
+  else if (i === 3) resetToPhotographer(); // Y
+  else if (i === 2) transition.toggleWipe(); // X
+};
+transition.onMode = (m) => {
+  app.classList.toggle("world", m === "world");
+  landing.classList.toggle("hidden", m === "world");
+  controls.enabled = m === "world";
+  if (m === "photo") controls.unlock();
+};
+
+let toastTimer = 0;
+function toast(msg: string, ms = 2200) {
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), ms);
+}
 
 // ---------------------------------------------------------------------------
-// HUD
+// Dev HUD (hidden unless ?dev=1 or H)
 // ---------------------------------------------------------------------------
 const hud = new Hud(document.getElementById("hud")!, {
   onWorldChange(id) {
@@ -83,11 +115,7 @@ const hud = new Hud(document.getElementById("hud")!, {
     void loadWorld(id);
   },
   onOverlay(o) {
-    overlay.style.opacity = String(o);
-    overlay.style.display = o > 0 ? "block" : "none";
-  },
-  onWipe(p) {
-    overlay.style.clipPath = `inset(0 ${100 - p}% 0 0)`;
+    transition.setOpacity(o);
   },
   onFov(deg) {
     camera.fov = deg;
@@ -95,7 +123,7 @@ const hud = new Hud(document.getElementById("hud")!, {
     hud.setStat("fov", `${deg.toFixed(1)}°`);
   },
   onSpeed(v) {
-    controls.fpsMovement.moveSpeed = v;
+    controls.moveSpeed = v;
   },
   onReset: () => resetToPhotographer(),
   onCopyCamera: () => copyCamera(),
@@ -103,11 +131,31 @@ const hud = new Hud(document.getElementById("hud")!, {
   onFlip: () => setConvention(convention === "opencv" ? "threejs" : "opencv"),
   onGrid: () => (grid.visible = !grid.visible),
   onBench: () => void runBenchmark(),
+  onCache: () => void cacheCurrentWorld(),
+  onWipe: () => transition.toggleWipe(),
+  onPhoto: () => transition.showPhoto(),
 });
 
 document.addEventListener("keydown", (e) => {
-  if ((e.target as HTMLElement)?.tagName === "TEXTAREA") return;
+  if (isTyping(e)) return;
   switch (e.code) {
+    case "Enter":
+    case "Space":
+      if (transition.mode === "photo") {
+        e.preventDefault();
+        void enterWorld();
+      }
+      break;
+    case "Tab":
+      e.preventDefault();
+      transition.peek(true);
+      break;
+    case "KeyV":
+      transition.toggleWipe();
+      break;
+    case "KeyH":
+      app.classList.toggle("dev");
+      break;
     case "KeyO": {
       const cur = hud.getSlider("overlay");
       hud.setSlider("overlay", cur === 0 ? 0.5 : cur < 1 ? 1 : 0);
@@ -141,10 +189,15 @@ document.addEventListener("keydown", (e) => {
       const def = Number(manifest?.bounds?.radiusM ?? 0);
       walkRadius = walkRadius > 0 ? 0 : def || 3.5;
       hud.setStat("radius", walkRadius > 0 ? `${walkRadius} m` : "off");
+      toast(walkRadius > 0 ? `walk radius ${walkRadius} m` : "walk radius off");
       break;
     }
   }
 });
+document.addEventListener("keyup", (e) => {
+  if (e.code === "Tab") transition.peek(false);
+});
+enterBtn.addEventListener("click", () => void enterWorld());
 
 // ---------------------------------------------------------------------------
 // Layout: letterbox the stage to the source photo's aspect so the overlay
@@ -194,70 +247,93 @@ function defaultPhotographerPose(): CameraPose {
   };
 }
 
+function currentPose(): CameraPose {
+  return {
+    position: camera.position.toArray() as [number, number, number],
+    quaternion: camera.quaternion.toArray() as [number, number, number, number],
+    fovY: camera.fov,
+  };
+}
+
 function applyPose(pose: CameraPose) {
   camera.position.fromArray(pose.position);
   camera.quaternion.fromArray(pose.quaternion);
   if (pose.fovY) hud.setSlider("fov", pose.fovY);
+  controls.syncFromCamera();
+}
+
+/** Ease the camera to `pose` over `ms` (controls are paused meanwhile). */
+function flyTo(pose: CameraPose, ms = 900) {
+  flight = { from: currentPose(), to: pose, t0: performance.now(), ms };
+}
+
+function stepFlight() {
+  if (!flight) return;
+  const t = Math.min(1, (performance.now() - flight.t0) / flight.ms);
+  const k = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  const a = new THREE.Vector3().fromArray(flight.from.position);
+  const b = new THREE.Vector3().fromArray(flight.to.position);
+  camera.position.lerpVectors(a, b, k);
+  const qa = new THREE.Quaternion().fromArray(flight.from.quaternion);
+  const qb = new THREE.Quaternion().fromArray(flight.to.quaternion);
+  camera.quaternion.slerpQuaternions(qa, qb, k);
+  const fa = flight.from.fovY ?? camera.fov;
+  const fb = flight.to.fovY ?? fa;
+  camera.fov = fa + (fb - fa) * k;
+  camera.updateProjectionMatrix();
+  if (t >= 1) {
+    flight = null;
+    hud.setSlider("fov", camera.fov);
+    controls.syncFromCamera();
+    controls.enabled = transition.mode === "world";
+  }
 }
 
 function poseKey() {
   return `wtp:pose:${manifest?.id ?? "none"}`;
 }
 
-/**
- * auto: saved pose (localStorage) → manifest sourceCamera → splat origin
- * manifest: skip the saved pose
- */
-function resetToPhotographer(mode: "auto" | "manifest" = "auto") {
-  if (!manifest) return;
-  let pose: CameraPose | null = null;
-  let from = "splat origin";
+/** auto: saved pose (localStorage) → manifest sourceCamera → splat origin. manifest: skip the saved pose. */
+function photographerPose(mode: "auto" | "manifest" = "auto"): { pose: CameraPose; from: string } {
   if (mode === "auto") {
     const saved = localStorage.getItem(poseKey());
-    if (saved) {
-      pose = JSON.parse(saved) as CameraPose;
-      from = "saved pose";
-    }
+    if (saved) return { pose: JSON.parse(saved) as CameraPose, from: "saved pose" };
   }
-  if (!pose && manifest.sourceCamera) {
-    pose = manifest.sourceCamera;
-    from = "manifest sourceCamera";
-  }
-  if (!pose) pose = defaultPhotographerPose();
-  applyPose(pose);
+  if (manifest?.sourceCamera) return { pose: manifest.sourceCamera, from: "manifest sourceCamera" };
+  return { pose: defaultPhotographerPose(), from: "splat origin" };
+}
+
+function resetToPhotographer(mode: "auto" | "manifest" = "auto", animate = true) {
+  if (!manifest) return;
+  const { pose, from } = photographerPose(mode);
   photographerPos.fromArray(pose.position);
+  if (animate && transition.mode === "world") {
+    controls.enabled = false;
+    flyTo(pose);
+  } else {
+    applyPose(pose);
+  }
   hud.setStat("cam", from);
 }
 
 function cameraJson(): string {
-  const pose: CameraPose & { convention: Convention; world: string } = {
-    position: camera.position.toArray() as [number, number, number],
-    quaternion: camera.quaternion.toArray() as [number, number, number, number],
-    fovY: camera.fov,
-    convention,
-    world: manifest?.id ?? "",
-  };
-  return JSON.stringify(pose, null, 2);
+  return JSON.stringify({ ...currentPose(), convention, world: manifest?.id ?? "" }, null, 2);
 }
 
 function copyCamera() {
   const j = cameraJson();
   hud.setText(j);
   void navigator.clipboard?.writeText(j).then(
-    () => hud.setStatus("camera JSON copied — paste as sourceCamera in world.json", "ok"),
-    () => hud.setStatus("camera JSON shown below (clipboard blocked)"),
+    () => toast("camera JSON copied — paste as sourceCamera in world.json"),
+    () => toast("camera JSON shown in the dev panel (clipboard blocked)"),
   );
 }
 
 function savePose() {
   if (!manifest) return;
-  const pose: CameraPose = {
-    position: camera.position.toArray() as [number, number, number],
-    quaternion: camera.quaternion.toArray() as [number, number, number, number],
-    fovY: camera.fov,
-  };
-  localStorage.setItem(poseKey(), JSON.stringify(pose));
-  hud.setStatus(`pose saved for "${manifest.id}" (R restores it, Shift+R ignores it)`, "ok");
+  localStorage.setItem(poseKey(), JSON.stringify(currentPose()));
+  photographerPos.copy(camera.position);
+  toast(`photographer pose saved for "${manifest.id}"`);
   hud.setStat("cam", "saved pose");
 }
 
@@ -272,7 +348,7 @@ function clearPano() {
 }
 
 /** Marble's pano is captured at the splat origin. Its centre column faces the input photo (+z OpenCV = -z three.js);
- *  three.js equirect centre faces +x, hence the default 90° yaw. ?panoYaw=deg overrides for tuning. */
+ *  three.js equirect centre faces +x, hence the default 90° yaw (verified against the photo). */
 async function loadPano(url: string, yawDeg: number) {
   clearPano();
   const tex = await new THREE.TextureLoader().loadAsync(url);
@@ -284,7 +360,7 @@ async function loadPano(url: string, yawDeg: number) {
 }
 
 function applyWalkRadius() {
-  if (walkRadius <= 0) return;
+  if (walkRadius <= 0 || flight) return;
   const d = camera.position.distanceTo(photographerPos);
   if (d > walkRadius) {
     camera.position.sub(photographerPos).multiplyScalar(walkRadius / d).add(photographerPos);
@@ -292,13 +368,33 @@ function applyWalkRadius() {
 }
 
 // ---------------------------------------------------------------------------
+// Landing card + enter
+// ---------------------------------------------------------------------------
+function fillLanding(m: WorldManifest) {
+  const c = m.credit ?? {};
+  landingTitle.textContent = c.title ?? m.name;
+  const parts = [c.photographer, c.year, c.place].filter(Boolean).join(" · ");
+  landingMeta.innerHTML = [parts, c.licence].filter(Boolean).map((s) => `<div>${s}</div>`).join("");
+}
+
+let ready = false;
+async function enterWorld() {
+  if (!manifest || transition.mode !== "photo") return;
+  if (!ready) {
+    toast("still loading the world…");
+    return;
+  }
+  enterBtn.disabled = true;
+  resetToPhotographer("auto", false);
+  await transition.enterWorld();
+  enterBtn.disabled = false;
+  toast("click to look around · WASD to walk");
+}
+
+// ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
-/**
- * Number of splats in the loaded file. At runtime SplatMesh exposes a plain
- * `numSplats` number; with `lod: true` the packed data itself moves into
- * `packedSplats.lodSplats` (the LoD tree, larger than the file), so prefer the former.
- */
+/** At runtime SplatMesh exposes a plain `numSplats`; with `lod: true` data moves into packedSplats.lodSplats. */
 function splatCount(mesh: SplatMesh): number {
   const n = (mesh as unknown as { numSplats?: unknown }).numSplats;
   if (typeof n === "number" && n > 0) return n;
@@ -323,11 +419,11 @@ async function mountSplat(opts: { url?: string; fileBytes?: ArrayBuffer; fileNam
     fileName: opts.fileName,
     lod: opts.lod,
     onProgress: (ev) => {
-      if (ev.lengthComputable) {
-        hud.setStatus(`downloading ${(ev.loaded / 1e6).toFixed(1)} / ${(ev.total / 1e6).toFixed(1)} MB`);
-      } else {
-        hud.setStatus(`decoding… ${(ev.loaded / 1e6).toFixed(1)} MB`);
-      }
+      const msg = ev.lengthComputable
+        ? `downloading ${(ev.loaded / 1e6).toFixed(1)} / ${(ev.total / 1e6).toFixed(1)} MB`
+        : `decoding… ${(ev.loaded / 1e6).toFixed(1)} MB`;
+      hud.setStatus(msg);
+      enterBtn.textContent = msg;
     },
   });
   metricGroup.add(mesh);
@@ -336,33 +432,34 @@ async function mountSplat(opts: { url?: string; fileBytes?: ArrayBuffer; fileNam
   const n = splatCount(mesh);
   hud.setStat("splats", n.toLocaleString());
   hud.setStatus(`loaded ${n.toLocaleString()} splats in ${((performance.now() - t0) / 1000).toFixed(1)} s`, "ok");
-  // the file's own count settles a moment after `initialized` when LoD is on
   setTimeout(() => splatMesh === mesh && hud.setStat("splats", splatCount(mesh).toLocaleString()), 2000);
   return mesh;
 }
 
 async function loadWorld(id: string) {
+  ready = false;
+  transition.showPhoto();
+  enterBtn.textContent = "loading…";
   hud.setStatus(`loading manifest for "${id}"…`);
   try {
     manifest = await loadManifest(id);
   } catch (e) {
     hud.setStatus(String(e), "bad");
+    enterBtn.textContent = "world not found";
     return;
   }
   document.title = `${manifest.name} — Walk the Past`;
   hud.setStat("gen", manifest.generator);
+  fillLanding(manifest);
 
-  // metric transform (Marble)
   const s = manifest.metric?.scaleFactor ?? 1;
   const g = manifest.metric?.groundPlaneOffset ?? 0;
   metricGroup.scale.setScalar(s);
-  metricGroup.position.set(0, -g, 0); // raw frame: ground offset is applied along raw y before the axis flip
+  metricGroup.position.set(0, -g, 0); // raw frame: ground offset applies along raw y before the axis flip
   photographer.position.set(0, 0, 0);
   photographer.quaternion.identity();
-
   setConvention(manifest.splat.convention ?? "opencv");
 
-  // backdrop + walk radius (?pano=0 / ?radius=0 disable; ?panoYaw=deg tunes)
   if (manifest.pano?.url && params.get("pano") !== "0") {
     const yaw = Number(params.get("panoYaw") ?? manifest.pano.yawDeg ?? 90);
     loadPano(manifest.pano.url, yaw).catch((e) => console.warn("pano failed", e));
@@ -372,7 +469,7 @@ async function loadWorld(id: string) {
   walkRadius = Number(params.get("radius") ?? manifest.bounds?.radiusM ?? 0);
   hud.setStat("radius", walkRadius > 0 ? `${walkRadius} m` : "off");
 
-  // source photo overlay + letterbox
+  // source photo + letterbox
   if (manifest.source?.image) {
     overlay.src = manifest.source.image;
     await new Promise<void>((res) => {
@@ -384,18 +481,37 @@ async function loadWorld(id: string) {
     overlay.removeAttribute("src");
     sourceAspect = null;
   }
+  transition.showPhoto();
   layout();
 
+  // camera at the photographer while the splat streams in, so the crossfade lands on the right view
+  resetToPhotographer("auto", false);
+
   const lod = params.has("lod") ? params.get("lod") !== "0" : manifest.splat.lod ?? true;
-  // ?splat=splat_500k.spz swaps in another tier from the same world folder (for quality/FPS comparisons)
   const splatUrl = params.get("splat") ? resolveAsset(manifest.id, params.get("splat")!) : manifest.splat.url;
   try {
     await mountSplat({ url: splatUrl, lod });
   } catch (e) {
     hud.setStatus(`splat load failed: ${String(e)}`, "bad");
+    enterBtn.textContent = "failed to load world";
     return;
   }
-  resetToPhotographer();
+  ready = true;
+  enterBtn.textContent = "Walk into the photograph";
+  void isWorldCached(manifest).then((c) => hud.setStat("cache", c ? "offline ✓" : "not cached"));
+  if (!manifest.source?.image) void enterWorld(); // nothing to fade from
+}
+
+async function cacheCurrentWorld() {
+  if (!manifest) return;
+  try {
+    hud.setStat("cache", "caching…");
+    const bytes = await prefetchWorld(manifest, (d, t, b) => hud.setStat("cache", `${d}/${t} · ${(b / 1e6).toFixed(0)} MB`));
+    hud.setStat("cache", `offline ✓ ${(bytes / 1e6).toFixed(0)} MB`);
+    toast(`world cached for offline use (${(bytes / 1e6).toFixed(0)} MB)`);
+  } catch (e) {
+    hud.setStat("cache", `failed: ${String(e)}`);
+  }
 }
 
 // Drag & drop a local .ply / .spz for ad-hoc inspection.
@@ -409,13 +525,9 @@ window.addEventListener("drop", async (e) => {
   app.classList.remove("dragging");
   const f = e.dataTransfer?.files?.[0];
   if (!f) return;
-  manifest = {
-    id: `dropped:${f.name}`,
-    name: f.name,
-    generator: "other",
-    splat: { url: "", convention: "opencv" },
-  };
+  manifest = { id: `dropped:${f.name}`, name: f.name, generator: "other", splat: { url: "", convention: "opencv" } };
   hud.setStat("gen", "dropped file");
+  fillLanding(manifest);
   metricGroup.scale.setScalar(1);
   metricGroup.position.set(0, 0, 0);
   setConvention("opencv");
@@ -428,7 +540,9 @@ window.addEventListener("drop", async (e) => {
   hud.setStatus(`reading ${f.name}…`);
   try {
     await mountSplat({ fileBytes: await f.arrayBuffer(), fileName: f.name, lod: true });
-    resetToPhotographer("manifest");
+    ready = true;
+    resetToPhotographer("manifest", false);
+    void enterWorld();
   } catch (err) {
     hud.setStatus(`failed: ${String(err)}`, "bad");
   }
@@ -442,7 +556,7 @@ async function runBenchmark() {
   if (benchmarking) return;
   benchmarking = true;
   benchSamples.length = 0;
-  hud.setStatus("benchmark running for 10 s — walk around the scene", "ok");
+  toast("benchmark: 10 s — walk around");
   await new Promise((r) => setTimeout(r, 10_000));
   benchmarking = false;
   const ft = [...benchSamples].sort((a, b) => a - b);
@@ -451,13 +565,12 @@ async function runBenchmark() {
   const p = (q: number) => ft[Math.min(ft.length - 1, Math.floor(q * ft.length))];
   const gl = renderer.getContext();
   const dbg = gl.getExtension("WEBGL_debug_renderer_info");
-  const gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "unknown";
   const report = {
     world: manifest?.id,
     generator: manifest?.generator,
     splats: splatMesh ? splatCount(splatMesh) : 0,
     resolution: `${canvas.width}x${canvas.height} @${renderer.getPixelRatio()}x`,
-    gpu,
+    gpu: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "unknown",
     frames: ft.length,
     fps_avg: +(1000 / avg).toFixed(1),
     fps_p1_low: +(1000 / p(0.99)).toFixed(1),
@@ -468,7 +581,7 @@ async function runBenchmark() {
   };
   const j = JSON.stringify(report, null, 2);
   hud.setText(j);
-  hud.setStatus(`benchmark: ${report.fps_avg} fps avg, ${report.fps_p1_low} fps 1% low`, report.fps_p1_low >= 30 ? "ok" : "bad");
+  toast(`benchmark: ${report.fps_avg} fps avg, ${report.fps_p1_low} fps 1% low`, 4000);
   console.log("[bench]", report);
 }
 
@@ -478,13 +591,14 @@ async function runBenchmark() {
 let lastT = performance.now();
 renderer.setAnimationLoop(() => {
   const now = performance.now();
-  const dt = now - lastT;
+  const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
-  controls.update(camera);
+  if (flight) stepFlight();
+  else controls.update(dt);
   applyWalkRadius();
   renderer.render(scene, camera);
-  hud.tick(dt);
-  if (benchmarking) benchSamples.push(dt);
+  hud.tick(dt * 1000);
+  if (benchmarking) benchSamples.push(dt * 1000);
 });
 
 // ---------------------------------------------------------------------------
@@ -492,6 +606,7 @@ renderer.setAnimationLoop(() => {
 // ---------------------------------------------------------------------------
 (async () => {
   layout();
+  void registerWorker();
   const worlds = await listWorlds();
   const id = params.get("world") ?? worlds[0]?.id ?? "";
   hud.setWorlds(worlds, id);
@@ -503,7 +618,17 @@ renderer.setAnimationLoop(() => {
 // Debug handle for the console / tests (window.wtp.mesh etc.)
 declare global {
   interface Window {
-    wtp: { readonly mesh: SplatMesh | null; readonly manifest: WorldManifest | null; camera: THREE.PerspectiveCamera; scene: THREE.Scene; spark: SparkRenderer };
+    wtp: {
+      readonly mesh: SplatMesh | null;
+      readonly manifest: WorldManifest | null;
+      camera: THREE.PerspectiveCamera;
+      scene: THREE.Scene;
+      spark: SparkRenderer;
+      controls: FirstPersonControls;
+      transition: PhotoTransition;
+      enterWorld: () => Promise<void>;
+      readonly flight: unknown;
+    };
   }
 }
 window.wtp = {
@@ -516,4 +641,10 @@ window.wtp = {
   camera,
   scene,
   spark,
+  controls,
+  transition,
+  enterWorld,
+  get flight() {
+    return flight;
+  },
 };

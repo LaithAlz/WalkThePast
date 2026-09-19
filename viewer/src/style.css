@@ -55,3 +55,47 @@ html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
   font-size: 18px; color: var(--accent); pointer-events: none;
 }
 #app.dragging #drop-hint { display: grid; }
+
+/* ---- Phase 1: landing, hints, wipe, toast ---- */
+#hud { display: none; }
+#app.dev #hud { display: flex; }
+#wipe-handle {
+  position: absolute; top: 0; bottom: 0; width: 0; display: none; left: 50%;
+  border-left: 2px solid var(--accent); cursor: ew-resize; pointer-events: auto; z-index: 3;
+}
+#wipe-handle span {
+  position: absolute; top: 50%; left: -14px; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent); transform: translateY(-50%); box-shadow: 0 0 0 3px rgba(0,0,0,0.35);
+}
+#landing {
+  position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: flex-start;
+  padding: 28px; z-index: 4; pointer-events: none;
+  background: linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0) 45%);
+  transition: opacity 0.6s ease;
+}
+#landing.hidden { opacity: 0; pointer-events: none; }
+#landing .card { pointer-events: auto; max-width: 520px; color: #f3f0e8; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+#landing .eyebrow { font-size: 11px; letter-spacing: 0.18em; color: var(--accent); text-transform: uppercase; margin-bottom: 8px; }
+#landing h1 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: 30px; line-height: 1.15; margin: 0 0 8px; }
+#landing .meta { font-size: 12.5px; color: #d8d3c6; line-height: 1.5; margin-bottom: 16px; }
+#enter {
+  font: inherit; font-size: 13px; letter-spacing: 0.04em; color: #14120e; background: var(--accent);
+  border: 0; border-radius: 4px; padding: 10px 16px; cursor: pointer;
+}
+#enter:hover { filter: brightness(1.08); }
+#enter:disabled { opacity: 0.5; cursor: wait; }
+#landing .hint { margin-top: 8px; font-size: 11px; color: var(--muted); }
+#hints {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 3;
+  display: flex; gap: 14px; padding: 6px 12px; border-radius: 999px;
+  background: rgba(16,16,22,0.7); color: var(--muted); font-size: 11px; white-space: nowrap;
+  opacity: 0; transition: opacity 0.5s; pointer-events: none;
+}
+#app.world #hints { opacity: 1; }
+#app.locked #hints { opacity: 0.35; }
+#toast {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 5;
+  background: rgba(16,16,22,0.85); color: var(--fg); padding: 6px 12px; border-radius: 4px;
+  font-size: 12px; opacity: 0; transition: opacity 0.3s; pointer-events: none;
+}
+#toast.show { opacity: 1; }
