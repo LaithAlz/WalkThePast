@@ -1,0 +1,57 @@
+:root {
+  --bg: #0b0b0e;
+  --panel: rgba(16, 16, 22, 0.86);
+  --fg: #e8e6e1;
+  --muted: #9a978f;
+  --accent: #d8b46a;
+  --ok: #6fcf97;
+  --warn: #f2c94c;
+  --bad: #eb5757;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--fg);
+}
+html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+#app { position: fixed; inset: 0; }
+#stage {
+  position: absolute; left: 0; top: 0;
+  outline: 1px solid #222;
+}
+#c { display: block; width: 100%; height: 100%; }
+#overlay {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: fill; pointer-events: none; opacity: 0; display: none;
+}
+#hud {
+  position: absolute; left: 12px; top: 12px; width: 320px;
+  background: var(--panel); border: 1px solid #2a2a33; border-radius: 6px;
+  padding: 10px 12px; backdrop-filter: blur(6px);
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: calc(100vh - 24px); overflow: auto;
+}
+#hud h1 { font-size: 13px; margin: 0 0 2px; color: var(--accent); letter-spacing: 0.04em; }
+#hud .row { display: flex; align-items: center; gap: 8px; }
+#hud .row label { width: 84px; color: var(--muted); flex: none; }
+#hud .row input[type=range] { flex: 1; }
+#hud .row output { width: 52px; text-align: right; flex: none; }
+#hud select, #hud button, #hud textarea {
+  font: inherit; color: var(--fg); background: #1c1c25; border: 1px solid #33333f;
+  border-radius: 4px; padding: 3px 6px;
+}
+#hud button { cursor: pointer; }
+#hud button:hover { border-color: var(--accent); }
+#hud .btns { display: flex; flex-wrap: wrap; gap: 4px; }
+#hud textarea { width: 100%; height: 88px; resize: vertical; font-size: 10px; box-sizing: border-box; }
+#hud .stats { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; }
+#hud .stats span:nth-child(odd) { color: var(--muted); }
+#hud .status { color: var(--muted); min-height: 14px; }
+#hud .status.ok { color: var(--ok); }
+#hud .status.bad { color: var(--bad); }
+#hud .help { color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+#hud kbd { background: #23232d; border: 1px solid #3a3a48; border-radius: 3px; padding: 0 4px; color: var(--fg); }
+#drop-hint {
+  position: absolute; inset: 0; display: none; place-items: center;
+  background: rgba(216, 180, 106, 0.12); border: 2px dashed var(--accent);
+  font-size: 18px; color: var(--accent); pointer-events: none;
+}
+#app.dragging #drop-hint { display: grid; }

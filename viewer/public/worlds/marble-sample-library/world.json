@@ -1,0 +1,14 @@
+{
+  "id": "marble-sample-library",
+  "name": "Elegant library with fireplace (Marble sample export)",
+  "generator": "marble",
+  "splat": {
+    "url": "https://wlt-ai-cdn.art/example_exports/elegant_library_with_fireplace/elegant_library_with_fireplace_500k.spz",
+    "convention": "opencv",
+    "lod": true
+  },
+  "metric": { "scaleFactor": 1.0, "groundPlaneOffset": 0.0 },
+  "source": null,
+  "sourceCamera": null,
+  "notes": "Public sample from docs.worldlabs.ai/marble/export/specs."
+}

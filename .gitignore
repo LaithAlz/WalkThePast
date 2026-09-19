@@ -1,0 +1,24 @@
+# deps / build
+node_modules/
+viewer/dist/
+.DS_Store
+.env
+.env.*
+__pycache__/
+*.pyc
+
+# generated worlds are large binaries: keep world.json + source photo, not the splats
+*.ply
+*.spz
+*.splat
+*.ksplat
+*.sog
+*.rad
+*.npz
+*.pkl
+*.mp4
+viewer/public/worlds/**/marble_world.json
+
+# lyra checkpoints/outputs if the repo is ever cloned onto the GPU box
+pipelines/lyra/lyra/
+pipelines/lyra/bundles/
