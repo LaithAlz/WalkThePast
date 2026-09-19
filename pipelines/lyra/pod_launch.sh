@@ -31,6 +31,8 @@ nohup bash -c '
   python3 -m scripts.download_tokenizer_checkpoints --checkpoint_dir checkpoints/cosmos_predict1 --tokenizer_types CV8x8x8-720p
   python3 scripts/download_lyra_checkpoints.py --checkpoint_dir checkpoints
   python3 scripts/download_gen3c_checkpoints.py --checkpoint_dir checkpoints
+  # the t5-11b snapshot also ships a 45 GB TensorFlow copy that Cosmos never loads
+  rm -f checkpoints/google-t5/t5-11b/tf_model.h5
   hf download nvidia/Lyra-Testing-Example --repo-type dataset --local-dir assets/demo || huggingface-cli download nvidia/Lyra-Testing-Example --repo-type dataset --local-dir assets/demo
   echo DOWNLOADS_DONE
 ' > "$PERSIST/download.log" 2>&1 < /dev/null &
