@@ -51,7 +51,7 @@ The script uploads, generates (~5 min), downloads every `.spz` tier, requests th
 export (needed for the Phase 2 provenance engine), writes `viewer/public/worlds/marble-photo/world.json`
 and registers it in the viewer dropdown. Reload the viewer → pick the world.
 
-## 2. Lyra 1.0
+## 2. Lyra 1.0 — DROPPED 2026-09-19 (see COMPARISON.md); kept for the record
 
 Rent a GPU box (RunPod/Lambda/Vast: 1× A100-80GB or H100, Ubuntu 22.04, CUDA 12 image). Then:
 

@@ -47,9 +47,14 @@ Lyra `sourceCamera` (should be ~identity: position 0,0,0 · quaternion 0,0,0,1 �
 
 ## Decision
 
-Generator for Phase 1+: __________
+Generator for Phase 1+: **World Labs Marble** (decided 2026-09-19, Lyra dropped entirely)
 
-Why:
+Why: on the same Atget photo, Marble produced a ~2M-splat world walkable for metres in ~5 min for $1.26, with a
+360 pano and collider mesh. Lyra 1.0 needed an H100 (~$3.50/h), a 1-2 h environment build with three patches,
+~75 GB of checkpoints and ~55 min per photo, and produced a faithful but narrow reconstruction: soft, sepia,
+walkable for well under a metre, with garbage outside the six short GEN3C camera excursions. Its one real
+advantage, an exact source camera + FOV from MoGe intrinsics, is recoverable for Marble with a single manual
+alignment per hero world. Lyra assets and scripts were removed from the repo; history has them (commit 7594aaa).
 
 Kill-switch note (from the plan): if the chosen generator's export blocks the provenance system, swap the
 generator and keep the manifest/viewer architecture — nothing downstream depends on which one produced the splat.
