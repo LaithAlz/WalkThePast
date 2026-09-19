@@ -1,1 +1,135 @@
-# WalkThePast
+# Walk the Past
+
+An evidence layer for AI-reconstructed history. A historical photograph becomes
+a walkable 3D world, and the world shows you where the photograph's evidence
+ends and the reconstruction begins.
+
+Build plan and phase gates: [WALK_THE_PAST_PHASES.md](WALK_THE_PAST_PHASES.md)
+
+## Getting started
+
+### Prerequisites
+
+**Node.js `^20.19.0` or `>=22.12.0`** — Vite 8 will refuse to start on anything
+older. Check yours:
+
+```bash
+node -v
+```
+
+If it is too old, install a current one ([nvm](https://github.com/nvm-sh/nvm)):
+
+```bash
+nvm install 22 && nvm use 22
+```
+
+npm ships with Node, so there is nothing else to install globally.
+
+### Install
+
+```bash
+git clone https://github.com/LaithAlz/WalkThePast.git
+cd WalkThePast
+npm install
+```
+
+`npm install` pulls everything — React, Three.js, Spark, TypeScript, Vite. It
+takes about a minute on a cold cache. Use `npm install`, not `npm i --force` or
+`--legacy-peer-deps`: if you hit a peer dependency error, something is actually
+wrong and we should fix it rather than paper over it.
+
+Already cloned and just need to catch up after someone adds a dependency? Run
+`npm install` again — it is safe to re-run any time.
+
+### Run
+
+```bash
+npm run dev
+```
+
+Open the URL it prints (usually `http://localhost:5173`, but it will pick the
+next free port if something else has it — we run more than one dev server on
+this project, so check the output rather than assuming).
+
+With no world configured you get a blank scene: grid, axes and the HUD. **That
+is correct**, not a broken build — it stays that way until the first Marble
+export lands. To confirm the renderer itself works, load the test splat in
+[Load a splat](#load-a-splat) below.
+
+### Scripts
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server with hot reload |
+| `npm run build` | Typecheck (`tsc -b`) then production build into `dist/` |
+| `npm run preview` | Serve the production build locally |
+| `npm run lint` | Lint with oxlint |
+
+Run `npm run build` before you open a PR — `npm run dev` does not typecheck, so
+a type error can sit in your branch unnoticed until it breaks someone else.
+
+### Troubleshooting
+
+- **`EJSONPARSE` or odd resolution errors** — delete and reinstall:
+  `rm -rf node_modules package-lock.json && npm install`
+- **Blank page, no grid, console errors about WebGL** — your browser or GPU is
+  not giving us a WebGL2 context. Check `chrome://gpu`.
+- **Splat loads but the world is upside down** — see the `flipY` note under
+  [Things worth knowing](#things-worth-knowing).
+
+## Load a splat
+
+Two ways, no code change needed for the second:
+
+1. Add an entry to `WORLDS` in [src/worlds.ts](src/worlds.ts) — the first entry
+   loads on startup.
+2. Pass a URL: `http://localhost:5173/?splat=/worlds/hero-1.spz`
+
+A known-good test asset, if you want to check the renderer independently of
+Marble:
+
+```bash
+curl -L -o public/worlds/butterfly.spz https://sparkjs.dev/assets/splats/butterfly.spz
+# then open http://localhost:5173/?splat=/worlds/butterfly.spz
+```
+
+Spark reads `.ply`, `.spz`, `.splat` and `.ksplat`. Prefer `.spz` for the demo
+build — it is roughly an order of magnitude smaller than `.ply`, which matters
+for the Phase 3 clean-browser-session test.
+
+## Layout
+
+```
+src/
+  viewer/Viewer.ts       Three.js + Spark render loop, splat loading, FPS sampling
+  components/
+    WorldCanvas.tsx      Mounts the viewer, owns its lifecycle
+    Hud.tsx              Status + frame rate overlay
+  worlds.ts              Hero world registry
+public/
+  worlds/                Marble exports (gitignored — too large)
+  sources/               Original historical photographs (committed)
+```
+
+### Why plain Three.js and not react-three-fiber
+
+Phase 2 writes custom shader work against Spark's `dyno` graph to classify every
+Gaussian. That is easier against Spark's own imperative API, and it keeps React
+out of the per-frame path. React owns mount/unmount and the HUD; `Viewer` owns
+everything inside the render loop.
+
+## Things worth knowing
+
+- `WebGLRenderer` is constructed with `antialias: false` on purpose. MSAA does
+  nothing for Gaussian splats and costs a lot of fill rate. Spark documents this.
+- Splat meshes get `quaternion.set(1, 0, 0, 0)` — a 180° roll about X. Marble and
+  most PLY exporters use a Y-down convention relative to Three.js. If an export
+  arrives upright, set `flipY: false` on that world.
+- Camera control is currently Spark's `SparkControls` (free-fly, drag to look).
+  Phase 1 replaces this with pointer-lock WASD and reset-to-photographer.
+- The production bundle is ~3.2 MB (Three.js plus Spark's wasm). Fine for a
+  localhost demo; worth code-splitting only if we deploy.
+
+## Stack
+
+Vite · React 19 · TypeScript · Three.js `0.186` · Spark `2.2` (`@sparkjsdev/spark`)
