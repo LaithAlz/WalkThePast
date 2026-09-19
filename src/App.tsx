@@ -232,7 +232,16 @@ function Upload({ onBack, onGenerate, onExplore, onAuth, onLogin }: { onBack: ()
 }
 
 function SamplePicker({ onBack, onChoose }: { onBack: () => void; onChoose: (sample: SampleWorld) => void }) {
-  return <main className="page sample-page"><header className="site-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></header><section className="sample-picker"><div className="sample-picker-intro"><h1>Choose a world<br /><em>to step into.</em></h1></div><div className="sample-picker-grid">{sampleWorlds.map((sample) => <button className="sample-picker-card" key={sample.title} onClick={() => onChoose(sample)}><div className="sample-picker-image"><img src={sample.image} alt="" /><span>READY TO WALK</span></div><div className="sample-picker-info"><p>{[sample.place, sample.date].filter(Boolean).join(" · ")}</p><h2>{sample.title}</h2><span>{sample.note}</span><b>{sample.evidence} <i>→</i></b></div></button>)}</div></section></main>;
+  // Worlds generated through the in-app bridge land in public/worlds/index.json; show them first.
+  const [generated, setGenerated] = useState<SampleWorld[]>([]);
+  useEffect(() => {
+    fetch("/worlds/index.json").then((r) => (r.ok ? r.json() : [])).then((list: { id: string; name: string }[]) => {
+      const known = new Set(sampleWorlds.map((w) => w.worldId));
+      setGenerated(list.filter((w) => !known.has(w.id) && !w.id.startsWith("marble-sample")).map((w) => ({ title: w.name, place: "GENERATED WORLD", date: "", evidence: "LIVE PROVENANCE", image: `/worlds/${w.id}/source.jpg`, note: "Built from a photograph through Marble and classified against it.", quote: "You’re standing where the photographer stood.", worldId: w.id })));
+    }).catch(() => undefined);
+  }, []);
+  const all = [...generated, ...sampleWorlds];
+  return <main className="page sample-page"><header className="site-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></header><section className="sample-picker"><div className="sample-picker-intro"><h1>Choose a world<br /><em>to step into.</em></h1></div><div className="sample-picker-grid">{all.map((sample) => <button className="sample-picker-card" key={sample.title} onClick={() => onChoose(sample)}><div className="sample-picker-image"><img src={sample.image} alt="" /><span>READY TO WALK</span></div><div className="sample-picker-info"><p>{[sample.place, sample.date].filter(Boolean).join(" · ")}</p><h2>{sample.title}</h2><span>{sample.note}</span><b>{sample.evidence} <i>→</i></b></div></button>)}</div></section></main>;
 }
 
 function Library({ onNew, onExplore }: { onNew: () => void; onExplore: () => void }) {
