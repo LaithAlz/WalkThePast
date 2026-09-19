@@ -29,5 +29,11 @@ dist-ssr
 *.sw?
 
 # Marble exports are far too large for git
-public/worlds/*
-!public/worlds/README.md
+# Generated worlds: keep the manifest and the source photograph, never the splats.
+# A full-res export is 100+ MB; the .spz/.ply are re-downloadable with the Marble world id.
+public/worlds/**/*.ply
+public/worlds/**/*.spz
+public/worlds/**/*.splat
+public/worlds/**/*.ksplat
+public/worlds/**/pano.png
+public/worlds/**/collider.glb

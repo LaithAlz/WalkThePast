@@ -1,0 +1,14 @@
+{
+  "id": "marble-sample-lane",
+  "name": "Narrow European cobblestone lane (Marble sample export)",
+  "generator": "marble",
+  "splat": {
+    "url": "https://wlt-ai-cdn.art/example_exports/narrow_european_cobblestone_lane/narrow_european_cobblestone_lane_500k.spz",
+    "convention": "opencv",
+    "lod": true
+  },
+  "metric": { "scaleFactor": 1.0, "groundPlaneOffset": 0.0 },
+  "source": null,
+  "sourceCamera": null,
+  "notes": "Public sample from docs.worldlabs.ai/marble/export/specs. No source photo, so the overlay tool is inactive; use it to validate rendering + FPS only. Swap _500k for _2m in the URL to stress test."
+}

@@ -1,0 +1,40 @@
+{
+  "id": "marble-giza",
+  "name": "Giza",
+  "generator": "marble",
+  "splat": {
+    "url": "./splat_full.ply",
+    "convention": "opencv",
+    "lod": true
+  },
+  "metric": {
+    "scaleFactor": 1.0,
+    "groundPlaneOffset": 1.17
+  },
+  "source": {
+    "image": "./source.jpg",
+    "width": 512,
+    "height": 512,
+    "fovY": 55.0
+  },
+  "sourceCamera": null,
+  "marble": {
+    "model": "marble-1.1",
+    "files": {
+      "ply_full": "splat_full.ply"
+    },
+    "mime": "image/jpeg"
+  },
+  "notes": "This export arrived as a bare splat_full.ply with no semantics_metadata, so scaleFactor is identity and groundPlaneOffset (1.17) was measured from the raw PLY: the lowest surface sits at raw y=+1.17 in OpenCV coordinates. That puts the ground at y=0 and the camera 1.17 units above it, which is walkable but NOT metric - moveSpeed and bounds.radiusM are in raw units, not metres. Replace both values from the Marble export's semantics_metadata when it is available. source.image and fovY are inherited from the earlier Giza world and are unconfirmed for this export; provenance output is meaningless until they are verified and the photographer pose is aligned.",
+  "pano": null,
+  "bounds": {
+    "radiusM": 3.5
+  },
+  "credit": {
+    "title": "Giza plateau",
+    "photographer": "illustration, artist unknown",
+    "year": "",
+    "place": "Egypt",
+    "licence": "stock illustration · 512 px test input"
+  }
+}
