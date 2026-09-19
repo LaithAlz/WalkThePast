@@ -10,6 +10,8 @@ import { Hud } from "./hud";
 import { FirstPersonControls, isTyping } from "./controls";
 import { PhotoTransition } from "./transition";
 import { isWorldCached, prefetchWorld, registerWorker } from "./cache";
+import { EvidenceLayer } from "./evidence";
+import { CLASS_NAMES, classifyPoint, computeProvenance, makeSourceCamera, type ProvenanceResult } from "./provenance";
 import { listWorlds, loadManifest, resolveAsset, type CameraPose, type Convention, type WorldManifest } from "./world";
 import "./style.css";
 
@@ -77,6 +79,125 @@ let walkRadius = 0; // 0 = unlimited
 const photographerPos = new THREE.Vector3();
 let panoTex: THREE.Texture | null = null;
 let flight: { from: CameraPose; to: CameraPose; t0: number; ms: number } | null = null;
+
+// ---------------------------------------------------------------------------
+// Phase 2: geometric provenance
+// ---------------------------------------------------------------------------
+const evidence = new EvidenceLayer();
+scene.add(evidence.frustum);
+let provenance: ProvenanceResult | null = null;
+let evidenceMode = false;
+let lastInspect = 0;
+const raycaster = new THREE.Raycaster();
+const evEls = {
+  mode: document.getElementById("ev-mode")!,
+  counts: [0, 1, 2].map((i) => document.getElementById(`ev-c${i}`)!),
+  inset: document.getElementById("ev-inset") as HTMLCanvasElement,
+  verdict: document.getElementById("ev-verdict")!,
+};
+
+function provenanceEnabled(m: WorldManifest): boolean {
+  return !!m.source?.image && m.provenance?.enabled !== false && params.get("prov") !== "0";
+}
+
+/** Gather every Gaussian in world space and classify it against the photographer's camera. */
+function runProvenance() {
+  if (!manifest || !splatMesh || !provenanceEnabled(manifest)) return;
+  const t0 = performance.now();
+  const { pose } = photographerPose("auto");
+  const aspect = sourceAspect ?? camera.aspect;
+  const cam = makeSourceCamera(pose.position, pose.quaternion, pose.fovY ?? camera.fov, aspect);
+
+  splatMesh.updateWorldMatrix(true, false);
+  const m = splatMesh.matrixWorld;
+  const worldScale = new THREE.Vector3().setFromMatrixScale(m).x;
+  const n = splatCount(splatMesh);
+  const positions = new Float32Array(n * 3);
+  const maxScales = new Float32Array(n);
+  const opacities = new Float32Array(n);
+  const p = new THREE.Vector3();
+  let count = 0;
+  splatMesh.forEachSplat((i, center, scales, _q, opacity) => {
+    if (i >= n) return;
+    p.copy(center).applyMatrix4(m);
+    positions[i * 3] = p.x;
+    positions[i * 3 + 1] = p.y;
+    positions[i * 3 + 2] = p.z;
+    maxScales[i] = Math.max(scales.x, scales.y, scales.z) * worldScale;
+    opacities[i] = opacity;
+    count++;
+  });
+  const o = manifest.provenance ?? {};
+  provenance = computeProvenance(positions.subarray(0, count * 3), maxScales.subarray(0, count), opacities.subarray(0, count), cam, {
+    width: o.width,
+    opacityMin: o.opacityMin,
+    relTol: o.relTol,
+  });
+  evidence.attach(splatMesh, provenance);
+  evidence.buildFrustum(cam, overlay.getAttribute("src") ? overlay : null);
+  const total = Math.max(1, count);
+  provenance.counts.forEach((c, i) => (evEls.counts[i].textContent = `${((100 * c) / total).toFixed(1)}%`));
+  const ms = performance.now() - t0;
+  hud.setStatus(`provenance: ${count.toLocaleString()} splats classified in ${ms.toFixed(0)} ms`, "ok");
+  console.log("[provenance]", { count, ms: +ms.toFixed(0), counts: provenance.counts, cam });
+}
+
+function setEvidenceMode(on: boolean) {
+  evidenceMode = on;
+  evidence.setMode(on);
+  app.classList.toggle("evidence", on);
+  evEls.mode.textContent = on ? "evidence mode" : "exploration";
+  if (on) toast("Evidence mode: green = photographed · amber = hidden behind what was photographed · purple = never in frame", 4500);
+}
+
+/** Classify whatever is under the crosshair and explain it (throttled). */
+function inspect(now: number) {
+  if (!provenance || !splatMesh || transition.mode !== "world" || now - lastInspect < 120) return;
+  lastInspect = now;
+  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+  const hits: { distance: number; point: THREE.Vector3; object: THREE.Object3D }[] = [];
+  splatMesh.raycast(raycaster, hits);
+  if (!hits.length) {
+    evEls.verdict.textContent = "Nothing under the crosshair.";
+    evEls.inset.className = "";
+    drawInset(null);
+    return;
+  }
+  hits.sort((a, b) => a.distance - b.distance);
+  const v = classifyPoint(provenance, hits[0].point);
+  evEls.verdict.innerHTML = `<b>${CLASS_NAMES[v.cls].replace("_", " ")}</b> · ${v.reason}`;
+  evEls.inset.className = `c${v.cls}`;
+  drawInset(Number.isNaN(v.u) ? null : [v.u, v.v]);
+}
+
+function drawInset(uv: [number, number] | null) {
+  const ctx = evEls.inset.getContext("2d");
+  if (!ctx) return;
+  const W = evEls.inset.width, H = evEls.inset.height;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  if (overlay.naturalWidth) {
+    const a = overlay.naturalWidth / overlay.naturalHeight;
+    let w = W, h = W / a;
+    if (h > H) { h = H; w = H * a; }
+    const x0 = (W - w) / 2, y0 = (H - h) / 2;
+    ctx.drawImage(overlay, x0, y0, w, h);
+    if (uv) {
+      const cx = x0 + Math.min(Math.max(uv[0], -0.05), 1.05) * w;
+      const cy = y0 + Math.min(Math.max(uv[1], -0.05), 1.05) * h;
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Controls + presentation
@@ -184,6 +305,17 @@ document.addEventListener("keydown", (e) => {
       break;
     case "KeyB":
       void runBenchmark();
+      break;
+    case "KeyM":
+      if (provenance) setEvidenceMode(!evidenceMode);
+      else toast("no provenance for this world (needs a source photo)");
+      break;
+    case "KeyK":
+      evidence.frustum.visible = !evidence.frustum.visible;
+      break;
+    case "KeyP":
+      runProvenance();
+      toast("provenance recomputed from the current photographer pose");
       break;
     case "KeyX": {
       const def = Number(manifest?.bounds?.radiusM ?? 0);
@@ -335,6 +467,7 @@ function savePose() {
   photographerPos.copy(camera.position);
   toast(`photographer pose saved for "${manifest.id}"`);
   hud.setStat("cam", "saved pose");
+  runProvenance();
 }
 
 // ---------------------------------------------------------------------------
@@ -487,14 +620,24 @@ async function loadWorld(id: string) {
   // camera at the photographer while the splat streams in, so the crossfade lands on the right view
   resetToPhotographer("auto", false);
 
-  const lod = params.has("lod") ? params.get("lod") !== "0" : manifest.splat.lod ?? true;
+  // provenance needs file-order indices and forEachSplat over every Gaussian: no LoD tree
+  const prov = provenanceEnabled(manifest);
+  const lod = params.has("lod") ? params.get("lod") !== "0" : prov ? false : manifest.splat.lod ?? true;
   const splatUrl = params.get("splat") ? resolveAsset(manifest.id, params.get("splat")!) : manifest.splat.url;
+  provenance = null;
+  evidence.detach();
+  setEvidenceMode(false);
   try {
     await mountSplat({ url: splatUrl, lod });
   } catch (e) {
     hud.setStatus(`splat load failed: ${String(e)}`, "bad");
     enterBtn.textContent = "failed to load world";
     return;
+  }
+  if (prov) {
+    enterBtn.textContent = "classifying evidence…";
+    await new Promise((r) => setTimeout(r, 30)); // let the button repaint
+    runProvenance();
   }
   ready = true;
   enterBtn.textContent = "Walk into the photograph";
@@ -526,6 +669,9 @@ window.addEventListener("drop", async (e) => {
   const f = e.dataTransfer?.files?.[0];
   if (!f) return;
   manifest = { id: `dropped:${f.name}`, name: f.name, generator: "other", splat: { url: "", convention: "opencv" } };
+  provenance = null;
+  evidence.detach();
+  setEvidenceMode(false);
   hud.setStat("gen", "dropped file");
   fillLanding(manifest);
   metricGroup.scale.setScalar(1);
@@ -596,6 +742,12 @@ renderer.setAnimationLoop(() => {
   if (flight) stepFlight();
   else controls.update(dt);
   applyWalkRadius();
+  if (provenance) {
+    // exploration mode: unsupported regions shift as the viewer leaves observed space
+    const d = camera.position.distanceTo(photographerPos);
+    evidence.setShift(THREE.MathUtils.smoothstep(d, 0.35, 3.0));
+    inspect(now);
+  }
   renderer.render(scene, camera);
   hud.tick(dt * 1000);
   if (benchmarking) benchSamples.push(dt * 1000);
@@ -628,6 +780,8 @@ declare global {
       transition: PhotoTransition;
       enterWorld: () => Promise<void>;
       readonly flight: unknown;
+      readonly provenance: ProvenanceResult | null;
+      setEvidenceMode: (on: boolean) => void;
     };
   }
 }
@@ -647,4 +801,8 @@ window.wtp = {
   get flight() {
     return flight;
   },
+  get provenance() {
+    return provenance;
+  },
+  setEvidenceMode,
 };

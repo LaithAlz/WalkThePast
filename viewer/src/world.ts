@@ -56,6 +56,8 @@ export interface WorldManifest {
   bounds?: { radiusM?: number } | null;
   /** Shown on the landing card: title / photographer / year / place / licence. */
   credit?: { title?: string; photographer?: string; year?: string; place?: string; licence?: string } | null;
+  /** Phase 2: false disables classification; options tune it (see provenance.ts). */
+  provenance?: { enabled?: boolean; width?: number; opacityMin?: number; relTol?: number } | null;
   notes?: string;
 }
 

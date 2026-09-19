@@ -99,3 +99,29 @@ html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
   font-size: 12px; opacity: 0; transition: opacity 0.3s; pointer-events: none;
 }
 #toast.show { opacity: 1; }
+
+/* ---- Phase 2: evidence ---- */
+#crosshair {
+  position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; z-index: 3;
+  border: 1.5px solid rgba(255,255,255,0.75); border-radius: 50%; pointer-events: none; opacity: 0;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+}
+#app.world #crosshair { opacity: 1; }
+#evidence {
+  position: absolute; right: 12px; top: 12px; width: 264px; z-index: 4;
+  background: var(--panel); border: 1px solid #2a2a33; border-radius: 6px; padding: 10px 12px;
+  backdrop-filter: blur(6px); display: none; flex-direction: column; gap: 8px;
+}
+#app.world #evidence { display: flex; }
+#evidence .ev-head { display: flex; justify-content: space-between; align-items: baseline; }
+#evidence .ev-title { color: var(--accent); letter-spacing: 0.12em; font-size: 11px; }
+#ev-mode { color: var(--muted); font-size: 11px; }
+#app.evidence #ev-mode { color: var(--fg); }
+#evidence .ev-legend div { display: flex; align-items: center; gap: 8px; font-size: 11.5px; line-height: 1.7; }
+#evidence .ev-legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; flex: none; }
+#evidence .ev-legend b { margin-left: auto; font-weight: 500; color: var(--muted); }
+#ev-inset { width: 240px; height: 180px; display: block; background: #000; border-radius: 3px; border: 2px solid transparent; }
+#ev-inset.c0 { border-color: #a96bff; } #ev-inset.c1 { border-color: #f2b134; } #ev-inset.c2 { border-color: #3ddc84; }
+.ev-verdict { font-size: 11px; line-height: 1.45; color: var(--fg); margin-top: 6px; min-height: 3.2em; }
+.ev-verdict b { font-weight: 600; }
+#evidence .ev-keys { color: var(--muted); font-size: 10.5px; }

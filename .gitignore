@@ -27,3 +27,4 @@ pipelines/lyra/bundles/
 viewer/public/worlds/**/pano.png
 viewer/public/worlds/**/collider.glb
 *.pt
+dist-test/
