@@ -10,6 +10,11 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+
+# Local configuration and credentials. Commit only the documented placeholder file.
+.env
+.env.*
+!.env.example
 *.local
 
 # Editor directories and files
