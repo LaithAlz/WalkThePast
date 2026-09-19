@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth, useSignIn, useSignUp } from "@clerk/react";
 import { WorldCanvas } from "./components/WorldCanvas";
+import type { Mode } from "./viewer/transition";
 import { VoiceHistorian } from "./components/VoiceHistorian";
 import { KnowledgePortal } from "./components/KnowledgePortal";
 import { enrichCaption, type HistoricalEntity } from "./historian/entities";
@@ -232,6 +233,9 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   const [suspended, setSuspended] = useState(false);
   const [splatReady, setSplatReady] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  // "photo" until the landing has been stepped through, so the in-world chrome
+  // does not render on top of the photograph.
+  const [mode, setMode] = useState<Mode>("photo");
   const live = !!world.worldId;
   // Percentages are real once the classifier has run; the mock cards keep their written copy.
   const share = (index: 0 | 1 | 2, fallback: string) => (counts ? `${counts[index].toFixed(1)}%` : fallback);
@@ -266,7 +270,7 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   const caption = evidence && verdict ? verdict.reason : evidence ? "You're looking at a wall the camera never saw. Its height comes from the building opposite." : world.quote;
 
   return <main className={`explore-page ${evidence ? "evidence-mode" : ""} ${suspended ? "is-suspended" : ""}`}>
-    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} onCounts={setCounts} onVerdict={setVerdict} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
+    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} onCounts={setCounts} onVerdict={setVerdict} onMode={setMode} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
     <div className="explore-vignette" />
     {evidence && !live && <div className="evidence-map" />}
     {evidence && !live && <div className="frustum"><span>ORIGINAL PLATE — {world.date} · 6.4 M BEHIND YOU</span><i /><b /></div>}
@@ -280,16 +284,19 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
         {infoOpen && <div className="explore-info-card">
           <p>World controls</p>
           <dl className="explore-shortcuts">
-            {voice && <div><dt>Click blob</dt><dd>Pause / resume</dd></div>}
             {live ? <>
-              <div><dt>Drag</dt><dd>Look around</dd></div>
-              <div><dt>W A S D</dt><dd>Walk</dd></div>
-              <div><dt>R</dt><dd>Photographer</dd></div>
-              <div><dt>Tab</dt><dd>Photograph</dd></div>
-              <div><dt>V</dt><dd>Image wipe</dd></div>
+              <div><dt>W A S D</dt><dd>Move</dd></div>
+              <div><dt>Shift</dt><dd>Run</dd></div>
+              <div><dt>Mouse</dt><dd>Turn</dd></div>
+              <div><dt>Scroll</dt><dd>Turn further</dd></div>
+              {voice && <div><dt>Space</dt><dd>Hold to talk</dd></div>}
+              <div><dt>R</dt><dd>Reset position</dd></div>
+              <div><dt>Esc</dt><dd>Pause menu</dd></div>
               <div><dt>E</dt><dd>Evidence</dd></div>
+              <div><dt>Tab</dt><dd>Hold for photo</dd></div>
+              <div><dt>V</dt><dd>Image wipe</dd></div>
             </> : <>
-              <div><dt>Space</dt><dd>Speak</dd></div>
+              <div><dt>Space</dt><dd>Hold to talk</dd></div>
               <div><dt>E</dt><dd>Evidence</dd></div>
             </>}
           </dl>
@@ -299,7 +306,7 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
       </div>
     </div>
     {evidence && <aside className="legend"><p>EVIDENCE · {world.title.toUpperCase()}</p><span><i className="green" />SOURCE-VISIBLE · {share(2, world.evidence.split(" ")[0])}</span><span><i className="amber" />OCCLUDED · INFERRED · {share(1, "34%")}</span><span><i className="purple" />UNSUPPORTED · {share(0, "25%")}</span></aside>}
-    {(!voice || !live || splatReady) && (
+    {(!live || (splatReady && mode === "world")) && (
       <div className={`explore-caption ${voice ? "has-voice" : ""}`}>
         {voice ? <VoiceHistorian world={world} evidence={evidence} counts={counts} verdict={verdict} hue={hue} onEntity={openEntity} paused={!!entity} /> : <><Historian hue={hue} state={speaking ? "listening" : "idle"} /><blockquote>“<EntityCaption text={caption} onEntity={openEntity} />”</blockquote></>}
         <p>{[world.place, world.date].filter(Boolean).join(" · ")}</p>

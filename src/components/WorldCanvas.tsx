@@ -210,18 +210,19 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
               <h2>{credit.title ?? manifest.name}</h2>
               {meta && <p className="photo-meta">{meta}</p>}
               {credit.licence && <p className="photo-licence">{credit.licence}</p>}
-              <button className="button" disabled={!ready} onClick={() => void enter()}>
-                {ready ? "Walk into the photograph" : describe(status)}
-              </button>
-              <p className="photo-hint">ENTER ↵ · then move or scroll to turn, WASD to walk · hold TAB to see the photograph · V to wipe</p>
+              <div className="photo-actions">
+                <button className="button" disabled={!ready} onClick={() => void enter()}>
+                  {ready ? "Walk into the photograph" : "Preparing the world"}
+                </button>
+                {ready && <span className="photo-enter">or press <kbd>Enter</kbd></span>}
+              </div>
+              {/* Controls live in the info card now, so the landing only has to
+                  explain itself and show that something is still happening. */}
+              {!ready && <p className="photo-progress" role="status"><i aria-hidden="true" /><span>{describe(status)}</span></p>}
             </div>
           </div>
         )}
       </div>
-      {inWorld && <div className="walking-toolbar">
-        <span role="status" className={`walking-status ${navigation.mode}`}>{navigation.message}</span>
-        <button disabled={!canWalk} onClick={() => viewerRef.current?.resetToPhotographer()}>Reset position</button>
-      </div>}
       {canWalk && <div className="walking-touch" aria-label="Walking controls">
         {([['forward', '↑'], ['left', '←'], ['back', '↓'], ['right', '→']] as const).map(([key, label]) => <button
           key={key} className={`walk-${key}`} aria-label={`Walk ${key}`}
