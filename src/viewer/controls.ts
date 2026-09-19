@@ -95,7 +95,10 @@ export class FirstPersonControls {
     // rather than from wherever it was last seen, which would snap the view.
     this.on(canvas, "pointerenter", (e) => {
       const pe = e as PointerEvent;
-      if (pe.pointerType !== "mouse") return;
+      // Ignore entries while input is ours to refuse: pointermove is returning
+      // early, so the seed would go stale and the next enabled move would apply
+      // the whole accumulated delta as one swing.
+      if (!this.enabled || pe.pointerType !== "mouse") return;
       this.lastX = pe.clientX;
       this.lastY = pe.clientY;
       this.hasPointer = true;
@@ -182,6 +185,10 @@ export class FirstPersonControls {
    * portal both put something else on screen and must not be steered through. */
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
+    // Drop the cursor reference in both directions. The pointer keeps moving
+    // while input is taken away, so the next move has to measure from wherever
+    // it is now rather than from where it was when we stopped watching.
+    this.hasPointer = false;
     if (!enabled) this.clearInput();
   }
 

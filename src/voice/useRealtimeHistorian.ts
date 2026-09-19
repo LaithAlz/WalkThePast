@@ -54,7 +54,15 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
     const channel = channelRef.current;
     if (channel?.readyState === "open") {
       if (event.type === "response.create") responseRequestedRef.current = true;
-      channel.send(JSON.stringify(event));
+      const payload = JSON.stringify(event);
+      // SCTP drops the whole channel on an oversized message, so name the cause
+      // rather than letting it surface as a generic event-channel failure.
+      const limit = peerRef.current?.sctp?.maxMessageSize;
+      if (limit && payload.length > limit) {
+        console.error(`[historian] ${event.type} is ${payload.length} bytes, over the ${limit}-byte data channel limit`);
+        return;
+      }
+      channel.send(payload);
     }
   }, []);
 
@@ -325,7 +333,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
       const ephemeralKey = tokenData.value ?? tokenData.client_secret?.value;
       if (!ephemeralKey) throw new Error("The voice session did not return a client credential");
       if (!imageResponse.ok) throw new Error("Could not load the source image");
-      const imageDataUrl = await blobToDataUrl(await imageResponse.blob());
+      const imageDataUrl = await imageToDataUrl(await imageResponse.blob());
       if (!current()) return;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!current()) { stream.getTracks().forEach((track) => track.stop()); return; }
@@ -418,6 +426,34 @@ function historicalEntityFromTool(args: Record<string, unknown>): HistoricalEnti
     summary,
     coordinates: longitude !== null && latitude !== null ? [longitude, latitude] : undefined,
   };
+}
+
+/** Shrink the source plate before it goes down the data channel.
+ *
+ * The historian is sent the photograph as a base64 data URL in a single
+ * RTCDataChannel message, and SCTP caps a message at `maxMessageSize` — commonly
+ * 256KB, which Safari enforces strictly. A full-resolution scan blows straight
+ * past that: the Versailles photochrom is 6MB on disk, about 8.3MB once base64
+ * encoded, and the send throws "Error sending string through RTCDataChannel",
+ * which surfaces as a dead event channel rather than an obviously oversized
+ * payload. A long side of 768px is ample for vision and lands well under the cap.
+ */
+async function imageToDataUrl(blob: Blob, maxSide = 768, quality = 0.72): Promise<string> {
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && blob.size < 96_000) { bitmap.close?.(); return blobToDataUrl(blob); }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { bitmap.close?.(); return blobToDataUrl(blob); }
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", quality);
+  } catch {
+    return blobToDataUrl(blob); // no bitmap decode: better an oversized try than none
+  }
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {

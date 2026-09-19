@@ -422,9 +422,15 @@ export class Viewer {
       lod,
       onProgress: (ev) => {
         if (token !== this.loadToken) return;
-        const message = ev.lengthComputable
-          ? `downloading ${(ev.loaded / 1e6).toFixed(1)} / ${(ev.total / 1e6).toFixed(1)} MB`
-          : `decoding ${(ev.loaded / 1e6).toFixed(1)} MB`;
+        // The bytes land early: on a 4.3M-splat world the LoD build that follows
+        // runs for ~11s, and leaving the byte count on screen through it reads as
+        // a stalled download rather than work still being done.
+        const downloaded = ev.lengthComputable && ev.loaded >= ev.total;
+        const message = downloaded
+          ? (lod ? "building level of detail" : "unpacking splats")
+          : ev.lengthComputable
+            ? `downloading ${(ev.loaded / 1e6).toFixed(1)} / ${(ev.total / 1e6).toFixed(1)} MB`
+            : `decoding ${(ev.loaded / 1e6).toFixed(1)} MB`;
         this.cb.onStatus?.({ kind: "loading", message });
       },
     });
