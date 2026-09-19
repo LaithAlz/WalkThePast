@@ -1,26 +1,30 @@
 [
   {
+    "id": "lyra-paris",
+    "name": "Lyra 1.0 · Paris, rue Cardinale 1922"
+  },
+  {
     "id": "marble-paris-cropped",
-    "name": "Marble \u00b7 Paris, rue Cardinale 1922 (cropped)"
+    "name": "Marble · Paris, rue Cardinale 1922 (cropped)"
   },
   {
     "id": "marble-paris",
-    "name": "Marble \u00b7 Paris, rue Cardinale (Atget 1922)"
+    "name": "Marble · Paris, rue Cardinale (Atget 1922)"
   },
   {
     "id": "marble-giza",
-    "name": "Marble \u00b7 Giza"
+    "name": "Marble · Giza"
   },
   {
     "id": "marble-giza-draft",
-    "name": "Marble \u00b7 Giza (draft)"
+    "name": "Marble · Giza (draft)"
   },
   {
     "id": "marble-sample-lane",
-    "name": "Marble sample \u00b7 cobblestone lane (500k, CDN)"
+    "name": "Marble sample · cobblestone lane (500k, CDN)"
   },
   {
     "id": "marble-sample-library",
-    "name": "Marble sample \u00b7 library (500k, CDN)"
+    "name": "Marble sample · library (500k, CDN)"
   }
 ]
