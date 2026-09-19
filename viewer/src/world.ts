@@ -50,6 +50,10 @@ export interface WorldManifest {
    * looking down its +z (OpenCV) axis, which is what both generators do.
    */
   sourceCamera?: CameraPose | null;
+  /** Equirectangular 360 panorama rendered behind the splats (Marble exports one). */
+  pano?: { url: string; yawDeg?: number } | null;
+  /** Soft walk limit around the photographer, in world units (metres for metric worlds). */
+  bounds?: { radiusM?: number } | null;
   notes?: string;
 }
 
@@ -83,5 +87,6 @@ export async function loadManifest(id: string): Promise<WorldManifest> {
   m.name ||= id;
   m.splat.url = resolveAsset(id, m.splat.url);
   if (m.source?.image) m.source.image = resolveAsset(id, m.source.image);
+  if (m.pano?.url) m.pano.url = resolveAsset(id, m.pano.url);
   return m;
 }

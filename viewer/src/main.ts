@@ -26,7 +26,11 @@ scene.background = new THREE.Color(0x0b0b0e);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 1000);
 scene.add(camera);
 
-const spark = new SparkRenderer({ renderer });
+// Render budget: Marble's own viewer draws every splat; Spark's default LoD budget is 1.5M.
+// ?budget=1500000 to compare, ?lod=0 to bypass LoD entirely.
+const params = new URLSearchParams(location.search);
+const budget = Number(params.get("budget") ?? 3_000_000);
+const spark = new SparkRenderer({ renderer, lodSplatCount: budget });
 scene.add(spark);
 
 /**
@@ -59,8 +63,9 @@ let splatMesh: SplatMesh | null = null;
 let convention: Convention = "opencv";
 let sourceAspect: number | null = null;
 let benchmarking = false;
-
-const params = new URLSearchParams(location.search);
+let walkRadius = 0; // 0 = unlimited
+const photographerPos = new THREE.Vector3();
+let panoTex: THREE.Texture | null = null;
 
 // ---------------------------------------------------------------------------
 // Controls (WASD / QE / drag-look) from Spark
@@ -132,6 +137,12 @@ document.addEventListener("keydown", (e) => {
     case "KeyB":
       void runBenchmark();
       break;
+    case "KeyX": {
+      const def = Number(manifest?.bounds?.radiusM ?? 0);
+      walkRadius = walkRadius > 0 ? 0 : def || 3.5;
+      hud.setStat("radius", walkRadius > 0 ? `${walkRadius} m` : "off");
+      break;
+    }
   }
 });
 
@@ -214,6 +225,7 @@ function resetToPhotographer(mode: "auto" | "manifest" = "auto") {
   }
   if (!pose) pose = defaultPhotographerPose();
   applyPose(pose);
+  photographerPos.fromArray(pose.position);
   hud.setStat("cam", from);
 }
 
@@ -247,6 +259,36 @@ function savePose() {
   localStorage.setItem(poseKey(), JSON.stringify(pose));
   hud.setStatus(`pose saved for "${manifest.id}" (R restores it, Shift+R ignores it)`, "ok");
   hud.setStat("cam", "saved pose");
+}
+
+// ---------------------------------------------------------------------------
+// Panorama backdrop + walk radius
+// ---------------------------------------------------------------------------
+function clearPano() {
+  scene.background = new THREE.Color(0x0b0b0e);
+  scene.environment = null;
+  panoTex?.dispose();
+  panoTex = null;
+}
+
+/** Marble's pano is captured at the splat origin. Its centre column faces the input photo (+z OpenCV = -z three.js);
+ *  three.js equirect centre faces +x, hence the default 90° yaw. ?panoYaw=deg overrides for tuning. */
+async function loadPano(url: string, yawDeg: number) {
+  clearPano();
+  const tex = await new THREE.TextureLoader().loadAsync(url);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  panoTex = tex;
+  scene.background = tex;
+  scene.backgroundRotation.set(0, THREE.MathUtils.degToRad(yawDeg), 0);
+}
+
+function applyWalkRadius() {
+  if (walkRadius <= 0) return;
+  const d = camera.position.distanceTo(photographerPos);
+  if (d > walkRadius) {
+    camera.position.sub(photographerPos).multiplyScalar(walkRadius / d).add(photographerPos);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +362,16 @@ async function loadWorld(id: string) {
 
   setConvention(manifest.splat.convention ?? "opencv");
 
+  // backdrop + walk radius (?pano=0 / ?radius=0 disable; ?panoYaw=deg tunes)
+  if (manifest.pano?.url && params.get("pano") !== "0") {
+    const yaw = Number(params.get("panoYaw") ?? manifest.pano.yawDeg ?? 90);
+    loadPano(manifest.pano.url, yaw).catch((e) => console.warn("pano failed", e));
+  } else {
+    clearPano();
+  }
+  walkRadius = Number(params.get("radius") ?? manifest.bounds?.radiusM ?? 0);
+  hud.setStat("radius", walkRadius > 0 ? `${walkRadius} m` : "off");
+
   // source photo overlay + letterbox
   if (manifest.source?.image) {
     overlay.src = manifest.source.image;
@@ -367,6 +419,9 @@ window.addEventListener("drop", async (e) => {
   metricGroup.scale.setScalar(1);
   metricGroup.position.set(0, 0, 0);
   setConvention("opencv");
+  clearPano();
+  walkRadius = 0;
+  hud.setStat("radius", "off");
   sourceAspect = null;
   overlay.removeAttribute("src");
   layout();
@@ -426,6 +481,7 @@ renderer.setAnimationLoop(() => {
   const dt = now - lastT;
   lastT = now;
   controls.update(camera);
+  applyWalkRadius();
   renderer.render(scene, camera);
   hud.tick(dt);
   if (benchmarking) benchSamples.push(dt);

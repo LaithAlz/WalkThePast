@@ -22,3 +22,7 @@ viewer/public/worlds/**/marble_world.json
 # lyra checkpoints/outputs if the repo is ever cloned onto the GPU box
 pipelines/lyra/lyra/
 pipelines/lyra/bundles/
+
+# per-world Marble extras (large, re-downloadable with --world-id)
+viewer/public/worlds/**/pano.png
+viewer/public/worlds/**/collider.glb

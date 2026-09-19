@@ -46,7 +46,7 @@ export class Hud {
 
     const stats = document.createElement("div");
     stats.className = "stats";
-    for (const k of ["fps", "frame", "splats", "gen", "conv", "cam", "fov"]) {
+    for (const k of ["fps", "frame", "splats", "gen", "conv", "cam", "fov", "radius"]) {
       const a = document.createElement("span");
       a.textContent = k;
       const b = document.createElement("span");
@@ -87,7 +87,7 @@ export class Hud {
     help.innerHTML =
       "<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Q</kbd><kbd>E</kbd> down/up · drag to look · " +
       "<kbd>Shift</kbd> faster · <kbd>O</kbd> overlay 0/50/100 · <kbd>[</kbd><kbd>]</kbd> fov · " +
-      "<kbd>R</kbd> photographer · <kbd>C</kbd> copy cam · <kbd>L</kbd> save · <kbd>F</kbd> flip · <kbd>G</kbd> grid · <kbd>B</kbd> bench";
+      "<kbd>R</kbd> photographer · <kbd>C</kbd> copy cam · <kbd>L</kbd> save · <kbd>F</kbd> flip · <kbd>G</kbd> grid · <kbd>B</kbd> bench · <kbd>X</kbd> walk radius";
     root.append(help);
   }
 

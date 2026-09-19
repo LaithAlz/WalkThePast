@@ -216,6 +216,16 @@ def main() -> None:
         download(url, dest)
         files[tier] = dest.name
 
+    # 360 panorama (equirect PNG) -> backdrop behind the splats, and the collider mesh for later phases
+    pano_url = ((world.get("assets") or {}).get("imagery") or {}).get("pano_url")
+    if pano_url:
+        download(pano_url, out / "pano.png")
+        files["pano"] = "pano.png"
+    collider_url = ((world.get("assets") or {}).get("mesh") or {}).get("collider_mesh_url")
+    if collider_url:
+        download(collider_url, out / "collider.glb")
+        files["collider"] = "collider.glb"
+
     if not args.no_ply:
         print("requesting free full-res PLY export")
         ex = m.export(world_id, "splats", "ply", "full_res")
@@ -255,6 +265,8 @@ def main() -> None:
         },
         "source": {"image": f"./{src_name}", "width": width, "height": height, "fovY": args.fov},
         "sourceCamera": None,
+        "pano": {"url": "./pano.png", "yawDeg": 90} if files.get("pano") else None,
+        "bounds": {"radiusM": 3.5},
         "marble": {
             "world_id": world_id,
             "model": world.get("model") or args.model,
