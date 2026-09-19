@@ -1,10 +1,14 @@
 [
   {
+    "id": "marble-versailles-hall-of-mirrors",
+    "name": "Marble \u00b7 Hall of Mirrors, Versailles"
+  },
+  {
     "id": "marble-giza",
     "name": "Giza (hero)"
   },
   {
     "id": "marble-sample-lane",
-    "name": "Marble sample · cobblestone lane (500k, CDN)"
+    "name": "Marble sample \u00b7 cobblestone lane (500k, CDN)"
   }
 ]

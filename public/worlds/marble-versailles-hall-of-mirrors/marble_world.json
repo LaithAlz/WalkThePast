@@ -1,0 +1,116 @@
+{
+  "world": {
+    "world_id": "27dbee62-13ae-4b98-8eb1-2e45ddf7604f",
+    "display_name": "",
+    "tags": null,
+    "assets": {
+      "mesh": {
+        "collider_mesh_url": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/e76b5eef.glb",
+        "hq_mesh_url": null,
+        "full_res_mesh_url": null
+      },
+      "imagery": {
+        "pano_url": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/32bd0391-7996-452a-8cba-d3112842aedc_panos/rgb_0.png"
+      },
+      "splats": {
+        "spz_urls": {
+          "500k": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/3f81c608-0a21-44f8-bfc6-e5b555eab36a_ceramic_500k.spz",
+          "100k": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/726e15f5-7554-4fa4-ba2e-8d4b0ed4e023_dust_100k.spz",
+          "150k": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/70eeb12c-6f83-419c-856a-4fcf97be53d7_ceramic_150k.spz",
+          "full_res": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/99f26a2b-26aa-4a56-93ac-ef74fb8935c8_ceramic.spz"
+        },
+        "semantics_metadata": {
+          "metric_scale_factor": 1.2904152,
+          "ground_plane_offset": 0.9881729
+        }
+      },
+      "thumbnail_url": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/0bc7cc28-6572-42b0-b353-c88c3906609a_sand_mpi/thumbnail.webp",
+      "caption": "The scene is a long barrel-vaulted state gallery, rendered in muted photochrom colors, evoking a sense of historical grandeur and opulent tranquility. The overall tone is regal and serene, showcasing an architectural marvel designed for lavish court life. An arcade of seventeen tall mirrored arches lines one wall, directly facing seventeen arched windows along the opposite wall. These are separated by fluted Corinthian pilasters, crafted from rose and green marble, each crowned with gilded bronze capitals that catch the soft daylight. The painted vaulted ceiling, featuring intricate designs in sage and slate, stretches across the entire expanse, from which numerous crystal chandeliers hang in a precise row down the center of the hall. Gilt candelabra rest on marble pedestals placed at regular intervals along both walls, illuminating the space with a warm glow. Upholstered benches, providing ample seating, are positioned along the base of both walls, extending the full length of the gallery. The herringbone parquet floor, meticulously polished to a warm honey gold, reflects the incoming light, creating a luminous pathway toward a doorway visible at the far end. Soft daylight streams through the window arcade, filling the deserted hall with an ethereal luminescence that highlights the cream, rose, and ochre marble. The 360 scene is faultless."
+    },
+    "created_at": null,
+    "updated_at": null,
+    "permission": {
+      "public": false,
+      "allowed_readers": [],
+      "allowed_writers": [],
+      "allow_id_access": false
+    },
+    "world_prompt": null,
+    "world_marble_url": "https://marble.worldlabs.ai/world/27dbee62-13ae-4b98-8eb1-2e45ddf7604f",
+    "model": null
+  },
+  "operation": {
+    "operation_id": "22db62b4-3825-49ff-ab82-b3fb2ed08071",
+    "created_at": "2026-09-19T21:59:31Z",
+    "updated_at": "2026-09-19T22:07:58Z",
+    "expires_at": "2026-09-20T00:59:31Z",
+    "done": true,
+    "error": null,
+    "metadata": {
+      "progress": {
+        "status": "SUCCEEDED",
+        "description": "World generation completed successfully"
+      },
+      "world_id": "27dbee62-13ae-4b98-8eb1-2e45ddf7604f",
+      "operation_type": "world_generation",
+      "public_model_name": "marble-1.1-plus"
+    },
+    "response": {
+      "world_id": "27dbee62-13ae-4b98-8eb1-2e45ddf7604f",
+      "display_name": "",
+      "tags": null,
+      "assets": {
+        "mesh": {
+          "collider_mesh_url": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/e76b5eef.glb",
+          "hq_mesh_url": null,
+          "full_res_mesh_url": null
+        },
+        "imagery": {
+          "pano_url": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/32bd0391-7996-452a-8cba-d3112842aedc_panos/rgb_0.png"
+        },
+        "splats": {
+          "spz_urls": {
+            "500k": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/3f81c608-0a21-44f8-bfc6-e5b555eab36a_ceramic_500k.spz",
+            "100k": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/726e15f5-7554-4fa4-ba2e-8d4b0ed4e023_dust_100k.spz",
+            "150k": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/70eeb12c-6f83-419c-856a-4fcf97be53d7_ceramic_150k.spz",
+            "full_res": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/99f26a2b-26aa-4a56-93ac-ef74fb8935c8_ceramic.spz"
+          },
+          "semantics_metadata": {
+            "metric_scale_factor": 1.2904152,
+            "ground_plane_offset": 0.9881729
+          }
+        },
+        "thumbnail_url": "https://cdn.marble.worldlabs.ai/27dbee62-13ae-4b98-8eb1-2e45ddf7604f/0bc7cc28-6572-42b0-b353-c88c3906609a_sand_mpi/thumbnail.webp",
+        "caption": "The scene is a long barrel-vaulted state gallery, rendered in muted photochrom colors, evoking a sense of historical grandeur and opulent tranquility. The overall tone is regal and serene, showcasing an architectural marvel designed for lavish court life. An arcade of seventeen tall mirrored arches lines one wall, directly facing seventeen arched windows along the opposite wall. These are separated by fluted Corinthian pilasters, crafted from rose and green marble, each crowned with gilded bronze capitals that catch the soft daylight. The painted vaulted ceiling, featuring intricate designs in sage and slate, stretches across the entire expanse, from which numerous crystal chandeliers hang in a precise row down the center of the hall. Gilt candelabra rest on marble pedestals placed at regular intervals along both walls, illuminating the space with a warm glow. Upholstered benches, providing ample seating, are positioned along the base of both walls, extending the full length of the gallery. The herringbone parquet floor, meticulously polished to a warm honey gold, reflects the incoming light, creating a luminous pathway toward a doorway visible at the far end. Soft daylight streams through the window arcade, filling the deserted hall with an ethereal luminescence that highlights the cream, rose, and ochre marble. The 360 scene is faultless."
+      },
+      "created_at": null,
+      "updated_at": null,
+      "permission": {
+        "public": false,
+        "allowed_readers": [],
+        "allowed_writers": [],
+        "allow_id_access": false
+      },
+      "world_prompt": null,
+      "world_marble_url": "https://marble.worldlabs.ai/world/27dbee62-13ae-4b98-8eb1-2e45ddf7604f",
+      "model": null
+    },
+    "cost": {
+      "total_credits": 3080,
+      "line_items": [
+        {
+          "name": "Pano generation (image, non-pano)",
+          "credits": 80
+        },
+        {
+          "name": "Base world generation",
+          "credits": 1500
+        },
+        {
+          "name": "Variable world generation",
+          "credits": 1500
+        }
+      ]
+    }
+  }
+}

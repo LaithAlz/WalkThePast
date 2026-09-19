@@ -11,7 +11,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node test/provenance.test.mjs"
+    "test": "node test/provenance.test.mjs && node test/walking.test.mjs"
   },
   "dependencies": {
     "@clerk/react": "^6.16.1",

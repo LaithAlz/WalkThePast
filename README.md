@@ -81,6 +81,7 @@ export lands. To confirm the renderer itself works, load the test splat in
 | `npm run build` | Typecheck (`tsc -b`) then production build into `dist/` |
 | `npm run preview` | Serve the production build locally |
 | `npm run lint` | Lint with oxlint |
+| `npm test` | Synthetic provenance and walking/collision regression tests (Node 22.18+ or 24+) |
 
 Run `npm run build` before you open a PR — `npm run dev` does not typecheck, so
 a type error can sit in your branch unnoticed until it breaks someone else.
@@ -142,8 +143,22 @@ everything inside the render loop.
 - Splat meshes get `quaternion.set(1, 0, 0, 0)` — a 180° roll about X. Marble and
   most PLY exporters use a Y-down convention relative to Three.js. If an export
   arrives upright, set `flipY: false` on that world.
-- Camera control is currently Spark's `SparkControls` (free-fly, drag to look).
-  Phase 1 replaces this with pointer-lock WASD and reset-to-photographer.
+- Camera control uses grounded first-person movement, with nothing to hold or
+  click: moving the cursor over the scene turns, holding it against a left or
+  right edge keeps turning so a full circle is reachable, and scrolling turns
+  as well. There is no pointer lock and no drag-to-look. Escape opens the pause menu,
+  which carries a persisted look sensitivity slider.
+  WASD/arrows walk, Shift runs and R resets. Collision meshes enable walls, gravity,
+  stairs and slopes. Without one, the viewer explicitly shows a level-ground
+  preview. See [Walking and collision setup](docs/walking.md) for the manifest
+  contract, controls, tests and per-world acceptance checks.
+- A world with provenance loads **two** splat meshes. Classification indexes
+  splats by file order, and Spark's LoD tree reorders them and varies how many
+  are live with the view, so the tinted mesh cannot use LoD. Rather than force
+  the whole world down to a low tier, `splat.url` stays full-resolution with LoD
+  for walking and `provenance.splatUrl` names a small tier that is hidden until
+  evidence mode. Only one is ever visible, so the cost is GPU memory, not fill
+  rate — and only evidence mode looks coarse.
 - The production bundle is ~3.2 MB (Three.js plus Spark's wasm). Fine for a
   localhost demo; worth code-splitting only if we deploy.
 

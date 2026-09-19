@@ -4,6 +4,8 @@
  * write this shape so the viewer does not care which generator produced it.
  */
 
+import type { WalkingOptions } from "./walking";
+
 /** Coordinate convention of the splat file itself. */
 export type Convention =
   /** OpenCV camera frame: +x right, +y down, +z forward (Marble spz/ply, Lyra ply). */
@@ -54,10 +56,25 @@ export interface WorldManifest {
   pano?: { url: string; yawDeg?: number } | null;
   /** Soft walk limit around the photographer, in world units (metres for metric worlds). */
   bounds?: { radiusM?: number } | null;
+  /** Use "splat" for a collider in the same raw frame as the splat. Use "world"
+   * for an already metric, Y-up mesh. Explicit transforms apply after that conversion. */
+  collider?: {
+    url: string;
+    space: "splat" | "world";
+    position?: [number, number, number];
+    rotation?: [number, number, number];
+    scale?: number;
+  } | null;
+  /** Player tuning in rendered world units. Spawn is an eye position in that frame. */
+  walking?: WalkingOptions & { spawn?: [number, number, number] };
   /** Shown on the landing card: title / photographer / year / place / licence. */
   credit?: { title?: string; photographer?: string; year?: string; place?: string; licence?: string } | null;
-  /** Phase 2: false disables classification; options tune it (see provenance.ts). */
-  provenance?: { enabled?: boolean; width?: number; opacityMin?: number; relTol?: number } | null;
+  /** Phase 2: false disables classification; options tune it (see provenance.ts).
+   * `splatUrl` is the splat that evidence mode shows and tints. Classification
+   * indexes splats by file order, so that mesh cannot use a LoD tree — point this
+   * at a low tier and leave `splat.url` on the full-resolution export, so walking
+   * stays sharp and only evidence mode drops detail. Defaults to `splat.url`. */
+  provenance?: { enabled?: boolean; splatUrl?: string; width?: number; opacityMin?: number; relTol?: number } | null;
   notes?: string;
 }
 
@@ -92,5 +109,7 @@ export async function loadManifest(id: string): Promise<WorldManifest> {
   m.splat.url = resolveAsset(id, m.splat.url);
   if (m.source?.image) m.source.image = resolveAsset(id, m.source.image);
   if (m.pano?.url) m.pano.url = resolveAsset(id, m.pano.url);
+  if (m.collider?.url) m.collider.url = resolveAsset(id, m.collider.url);
+  if (m.provenance?.splatUrl) m.provenance.splatUrl = resolveAsset(id, m.provenance.splatUrl);
   return m;
 }

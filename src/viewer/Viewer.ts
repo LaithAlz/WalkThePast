@@ -9,7 +9,10 @@
  */
 import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
-import { FirstPersonControls } from "./controls";
+import { FirstPersonControls, isTyping } from "./controls";
+import { WalkingMotor } from "./walking";
+import { loadCollider } from "./collider";
+import type { Octree } from "three/addons/math/Octree.js";
 import { EvidenceLayer } from "./evidence";
 import { CLASS_NAMES, classifyPoint, computeProvenance, makeSourceCamera, type ProvenanceResult } from "./provenance";
 import { loadManifest, type CameraPose, type Convention, type WorldManifest } from "./world";
@@ -24,12 +27,16 @@ export type ViewerStatus =
 export type EvidenceCounts = [number, number, number];
 
 export type Verdict = { label: string; reason: string; cls: 0 | 1 | 2 };
+export type NavigationStatus = { mode: "loading" | "walking" | "ground-only" | "unavailable" | "fly"; message: string };
 
 export type ViewerCallbacks = {
   onStatus?: (status: ViewerStatus) => void;
   onFps?: (fps: number) => void;
   onCounts?: (counts: EvidenceCounts) => void;
   onVerdict?: (verdict: Verdict | null) => void;
+  onNavigation?: (status: NavigationStatus) => void;
+  onPauseRequest?: () => void;
+  onResumeRequest?: () => void;
 };
 
 /** OpenCV camera (+z forward, +y down) -> three.js camera (-z forward, +y up). */
@@ -61,12 +68,15 @@ export class Viewer {
 
   private manifest: WorldManifest | null = null;
   private splatMesh: SplatMesh | null = null;
+  /** Untinted, LoD-free twin used only while evidence mode is on. See mountEvidenceSplat. */
+  private evidenceMesh: SplatMesh | null = null;
   private sourceImage: HTMLImageElement | null = null;
   private sourceAspect: number | null = null;
   private provenance: ProvenanceResult | null = null;
   private panoTex: THREE.Texture | null = null;
-  private walkRadius = 0; // 0 = unlimited
-  private flight: { from: CameraPose; to: CameraPose; t0: number; ms: number } | null = null;
+  private walking: WalkingMotor | null = null;
+  private collisionTree: Octree | null = null;
+  private colliderAbort: AbortController | null = null;
   private loadToken = 0;
 
   private frameHandle = 0;
@@ -92,7 +102,7 @@ export class Viewer {
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.05, 1000);
     this.scene.add(this.camera);
 
-    this.spark = new SparkRenderer({ renderer: this.renderer, lodSplatCount: 3_000_000 });
+    this.spark = new SparkRenderer({ renderer: this.renderer, lodSplatCount: 6_000_000 });
     this.scene.add(this.spark);
 
     this.worldRoot.add(this.metricGroup);
@@ -100,9 +110,18 @@ export class Viewer {
     this.scene.add(this.worldRoot, this.evidence.frustum);
 
     this.controls = new FirstPersonControls(canvas, this.camera);
+    this.controls.enabled = false;
+    this.controls.onPadButton = (index) => { if (index === 3) this.resetToPhotographer(); };
+    this.controls.onPauseRequest = () => this.cb.onPauseRequest?.();
+    this.controls.onResumeRequest = () => this.cb.onResumeRequest?.();
 
     this.onKeyDown = (e) => {
+      if (isTyping(e) || e.repeat) return;
       if (e.code === "KeyR") this.resetToPhotographer();
+      if (import.meta.env.DEV && e.altKey && e.code === "KeyF") {
+        e.preventDefault();
+        this.toggleDevelopmentFly();
+      }
     };
     document.addEventListener("keydown", this.onKeyDown);
 
@@ -121,9 +140,7 @@ export class Viewer {
       const dt = Math.min(0.1, (now - this.lastT) / 1000);
       this.lastT = now;
 
-      if (this.flight) this.stepFlight();
-      else this.controls.update(dt);
-      this.applyWalkRadius();
+      this.controls.update(dt);
       // Counted in drawn frames, not milliseconds: it has to land after Spark has actually
       // finished rebuilding the mesh, and frames are the thing that tracks that work.
       if (this.regenIn > 0 && --this.regenIn === 0) this.evidence.refresh();
@@ -161,7 +178,10 @@ export class Viewer {
     this.stop();
     document.removeEventListener("keydown", this.onKeyDown);
     this.controls.dispose();
+    this.colliderAbort?.abort();
+    this.collisionTree?.clear();
     this.evidence.detach();
+    this.clearEvidenceSplat();
     this.clearSplat();
     this.clearPano();
     this.renderer.dispose();
@@ -170,8 +190,17 @@ export class Viewer {
   /** Load a world by manifest id (public/worlds/<id>/world.json). */
   async load(id: string) {
     const token = ++this.loadToken;
+    this.colliderAbort?.abort();
+    this.colliderAbort = new AbortController();
+    this.controls.enabled = false;
+    this.controls.setMotor(null);
+    this.walking = null;
+    this.collisionTree?.clear();
+    this.collisionTree = null;
+    this.cb.onNavigation?.({ mode: "loading", message: "Preparing walking…" });
     this.provenance = null;
     this.evidence.detach();
+    this.clearEvidenceSplat();
     this.evidence.setMode(false);
     this.cb.onCounts?.([0, 0, 0]);
     this.cb.onVerdict?.(null);
@@ -195,7 +224,6 @@ export class Viewer {
     this.photographer.position.set(0, 0, 0);
     this.photographer.quaternion.identity();
     this.setConvention(manifest.splat.convention ?? "opencv");
-    this.walkRadius = manifest.bounds?.radiusM ?? 0;
 
     await this.loadSourceImage(manifest);
     if (token !== this.loadToken || this.disposed) return;
@@ -208,20 +236,34 @@ export class Viewer {
 
     // Sit at the photographer while the splat streams in, so the first frame
     // after load is already the historical viewpoint.
-    this.resetToPhotographer(false);
+    this.applyPose(this.photographerPose());
+    this.photographerPos.copy(this.camera.position);
 
-    // Provenance needs file-order indices and forEachSplat over every Gaussian,
-    // so the LoD tree has to stay off when it is enabled.
+    // The render mesh keeps its LoD tree, so walking around is full quality.
     const wantsProvenance = this.provenanceEnabled(manifest);
     try {
-      await this.mountSplat(manifest.splat.url, wantsProvenance ? false : manifest.splat.lod ?? true, token);
+      await this.mountSplat(manifest.splat.url, manifest.splat.lod ?? true, token);
     } catch (error) {
       if (token === this.loadToken) this.cb.onStatus?.({ kind: "error", message: `splat load failed: ${String(error)}` });
       return;
     }
     if (token !== this.loadToken || this.disposed) return;
 
-    this.resetToPhotographer(false);
+    // Classification indexes splats by file order, and a LoD tree reorders them and
+    // varies how many are live with the view, so the tinted mesh has to forgo LoD.
+    // Rather than pay that cost the whole time, it is a second, smaller mesh that
+    // only becomes visible in evidence mode.
+    if (wantsProvenance) {
+      try {
+        await this.mountEvidenceSplat(manifest.provenance?.splatUrl ?? manifest.splat.url, token);
+      } catch (error) {
+        console.warn("evidence splat failed; evidence mode unavailable", error);
+      }
+      if (token !== this.loadToken || this.disposed) return;
+    }
+
+    await this.prepareWalking(manifest, token, this.colliderAbort.signal);
+    if (token !== this.loadToken || this.disposed) return;
     if (wantsProvenance) {
       this.cb.onStatus?.({ kind: "loading", message: "classifying evidence" });
       await new Promise((r) => setTimeout(r, 30)); // let the UI repaint before a long sync pass
@@ -232,19 +274,78 @@ export class Viewer {
   }
 
   setEvidenceMode(on: boolean) {
+    const active = on && !!this.provenance && !!this.evidenceMesh;
+    // Swap which twin is drawn. Only one is ever visible, so this costs fill rate
+    // for neither; the price is GPU memory for both and a coarser evidence view.
+    if (this.evidenceMesh) this.evidenceMesh.visible = active;
+    if (this.splatMesh) this.splatMesh.visible = !active;
     this.evidence.setMode(on && !!this.provenance);
   }
 
-  /** Ease the camera back to the pose the photographer is believed to have occupied. */
-  resetToPhotographer(animate = true) {
+  /** Reset to a safe standing position near the source view, without flying through walls. */
+  resetToPhotographer() {
     if (!this.manifest) return;
     const pose = this.photographerPose();
     this.photographerPos.fromArray(pose.position);
-    if (animate) {
+    this.applyPose(pose);
+    this.controls.clearInput();
+    this.controls.flyMode = false;
+    if (this.walking?.ready) {
+      this.walking.reset();
+      this.camera.position.copy(this.walking.eye);
+      this.controls.enabled = true;
+      this.reportWalking();
+    }
+  }
+
+  setTouchMove(x: number, z: number) { this.controls.setTouchMove(x, z); }
+
+  setPaused(paused: boolean) { this.controls.setPaused(paused); }
+
+  setLookSensitivity(value: number) { this.controls.setSensitivity(value); }
+
+
+  private reportWalking() {
+    this.cb.onNavigation?.(this.walking?.hasCollider
+      ? { mode: "walking", message: "Walking · walls and ground enabled" }
+      : { mode: "ground-only", message: "Level-ground preview · object collisions unavailable" });
+  }
+
+  private toggleDevelopmentFly() {
+    if (!this.manifest || !this.walking?.ready) return;
+    if (this.controls.flyMode) { this.resetToPhotographer(); return; }
+    this.controls.clearInput();
+    this.controls.flyMode = true;
+    this.controls.enabled = true;
+    this.cb.onNavigation?.({ mode: "fly", message: "Developer fly · Q/C height · Alt+F to return" });
+  }
+
+  private async prepareWalking(manifest: WorldManifest, token: number, signal: AbortSignal) {
+    try {
+      if (manifest.collider) {
+        this.cb.onStatus?.({ kind: "loading", message: "preparing collision mesh" });
+        this.metricGroup.updateWorldMatrix(true, true);
+        const tree = await loadCollider(manifest.collider, this.metricGroup.matrixWorld, signal);
+        if (token !== this.loadToken || this.disposed) { tree.clear(); return; }
+        this.collisionTree = tree;
+      }
+      const { spawn: spawnPosition, ...walkingOptions } = manifest.walking ?? {};
+      const motor = new WalkingMotor(this.collisionTree, {
+        radiusLimit: manifest.bounds?.radiusM ?? 0,
+        ...walkingOptions,
+      });
+      const pose = this.photographerPose();
+      const spawn = new THREE.Vector3().fromArray(spawnPosition ?? pose.position);
+      if (!motor.spawn(spawn)) throw new Error("No safe starting position. A walking spawn needs to be configured.");
+      this.walking = motor;
+      this.controls.setMotor(motor);
+      this.controls.enabled = true;
+      this.reportWalking();
+    } catch (error) {
+      if (signal.aborted || token !== this.loadToken || this.disposed) return;
+      // A broken declared collider must never silently become collision-free walking.
       this.controls.enabled = false;
-      this.flight = { from: this.currentPose(), to: pose, t0: performance.now(), ms: 900 };
-    } else {
-      this.applyPose(pose);
+      this.cb.onNavigation?.({ mode: "unavailable", message: `Walking unavailable: ${error instanceof Error ? error.message : String(error)}` });
     }
   }
 
@@ -301,6 +402,27 @@ export class Viewer {
     this.metricGroup.add(mesh);
     this.splatMesh = mesh;
     await mesh.initialized;
+  }
+
+  /** The tinted twin: no LoD, so classification indices stay stable, and hidden
+   * until evidence mode asks for it. Point `provenance.splatUrl` at a low tier —
+   * without LoD a full-resolution export will not hold a usable frame rate. */
+  private async mountEvidenceSplat(url: string, token: number) {
+    this.clearEvidenceSplat();
+    this.cb.onStatus?.({ kind: "loading", message: "loading evidence detail" });
+    const mesh = new SplatMesh({ url, lod: false });
+    mesh.visible = false;
+    this.metricGroup.add(mesh);
+    this.evidenceMesh = mesh;
+    await mesh.initialized;
+    if (token !== this.loadToken || this.disposed) this.clearEvidenceSplat();
+  }
+
+  private clearEvidenceSplat() {
+    if (!this.evidenceMesh) return;
+    this.metricGroup.remove(this.evidenceMesh);
+    this.evidenceMesh.dispose();
+    this.evidenceMesh = null;
   }
 
   private clearSplat() {
@@ -381,46 +503,15 @@ export class Viewer {
     this.controls.syncFromCamera();
   }
 
-  private stepFlight() {
-    if (!this.flight) return;
-    const t = Math.min(1, (performance.now() - this.flight.t0) / this.flight.ms);
-    const k = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    this.camera.position.lerpVectors(
-      new THREE.Vector3().fromArray(this.flight.from.position),
-      new THREE.Vector3().fromArray(this.flight.to.position),
-      k,
-    );
-    this.camera.quaternion.slerpQuaternions(
-      new THREE.Quaternion().fromArray(this.flight.from.quaternion),
-      new THREE.Quaternion().fromArray(this.flight.to.quaternion),
-      k,
-    );
-    const fa = this.flight.from.fovY ?? this.camera.fov;
-    const fb = this.flight.to.fovY ?? fa;
-    this.camera.fov = fa + (fb - fa) * k;
-    this.camera.updateProjectionMatrix();
-    if (t >= 1) {
-      this.flight = null;
-      this.controls.syncFromCamera();
-      this.controls.enabled = true;
-    }
-  }
-
-  private applyWalkRadius() {
-    if (this.walkRadius <= 0 || this.flight) return;
-    const d = this.camera.position.distanceTo(this.photographerPos);
-    if (d > this.walkRadius) {
-      this.camera.position.sub(this.photographerPos).multiplyScalar(this.walkRadius / d).add(this.photographerPos);
-    }
-  }
-
   // -------------------------------------------------------------------------
   // Provenance
   // -------------------------------------------------------------------------
 
   /** Gather every Gaussian in world space and classify it against the photographer's camera. */
   private runProvenance() {
-    const mesh = this.splatMesh;
+    // Classify and tint the LoD-free twin: its splat order is stable, which is
+    // exactly what the per-splat class array and the tint shader index rely on.
+    const mesh = this.evidenceMesh;
     if (!this.manifest || !mesh || !this.provenanceEnabled(this.manifest)) return;
     const t0 = performance.now();
     const pose = this.photographerPose();
@@ -471,7 +562,8 @@ export class Viewer {
 
   /** Classify whatever is under the crosshair and explain it (throttled). */
   private inspect(now: number) {
-    const mesh = this.splatMesh;
+    // Raycast whichever twin is on screen; classifyPoint works from world position.
+    const mesh = this.evidenceMesh?.visible ? this.evidenceMesh : this.splatMesh;
     if (!this.provenance || !mesh || now - this.lastInspect < 120) return;
     this.lastInspect = now;
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);

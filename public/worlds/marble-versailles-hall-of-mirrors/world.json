@@ -1,0 +1,58 @@
+{
+  "id": "marble-versailles-hall-of-mirrors",
+  "name": "Hall of Mirrors, Versailles",
+  "generator": "marble",
+  "splat": {
+    "url": "./splat_full_res.spz",
+    "convention": "opencv",
+    "lod": true
+  },
+  "metric": {
+    "scaleFactor": 1.2904152,
+    "groundPlaneOffset": 0.9881729
+  },
+  "source": {
+    "image": "./source.jpg",
+    "width": 5202,
+    "height": 3656,
+    "fovY": 58.0
+  },
+  "sourceCamera": null,
+  "pano": {
+    "url": "./pano.png",
+    "yawDeg": 90
+  },
+  "collider": {
+    "url": "./collider.glb",
+    "space": "splat"
+  },
+  "bounds": {
+    "radiusM": 45
+  },
+  "marble": {
+    "world_id": "27dbee62-13ae-4b98-8eb1-2e45ddf7604f",
+    "model": "marble-1.1-plus",
+    "world_marble_url": "https://marble.worldlabs.ai/world/27dbee62-13ae-4b98-8eb1-2e45ddf7604f",
+    "files": {
+      "500k": "splat_500k.spz",
+      "100k": "splat_100k.spz",
+      "150k": "splat_150k.spz",
+      "full_res": "splat_full_res.spz",
+      "pano": "pano.png",
+      "collider": "collider.glb"
+    },
+    "mime": "image/jpeg"
+  },
+  "credit": {
+    "title": "Galerie des Glaces",
+    "photographer": "Photochrom Z\u00fcrich (P.Z. 6949)",
+    "year": "c. 1890\u20131905",
+    "place": "Palace of Versailles, Yvelines",
+    "licence": "public domain \u00b7 Photographic Archive, Zentralinstitut f\u00fcr Kunstgeschichte"
+  },
+  "notes": "Source is a public-domain photochrom (Photochrom Z\u00fcrich no. 6949, c. 1890-1905), so its colour is period lithographic colour rather than AI colorisation - nothing synthetic enters the provenance chain. The scan's printed caption strip and paper border were cropped with pipelines/prep_photo.py before generation; the crop box in original scan pixels is recorded in the sidecar written beside the prepared image. metric.* came from Marble semantics_metadata, so this world IS metric, unlike marble-giza. Collider bbox is 13.3 x 9.1 x 121.5 m against a real gallery of 10.5 x 12.3 x 73 m: Marble extended the hall well past its true length along z and kept the vault low, so geometry away from the source viewpoint is invention, not evidence. bounds.radiusM is 45 (not the 3.5 default) because the generated hall is long and the point is to traverse it. sourceCamera is unaligned: align in the viewer (R, then move, then C) and paste the JSON here before trusting provenance output. splat.url is full_res with lod:true so walking renders ~3.5M splats at ~56fps. provenance.splatUrl is the 500k tier: classification indexes splats by file order and a LoD tree reorders them and varies the live count with the view, so the tinted mesh must forgo LoD. Only one of the two meshes is visible at a time, so evidence mode is the only place detail drops. sourceCamera is still unaligned, so the classes themselves are not yet meaningful.",
+  "provenance": {
+    "enabled": true,
+    "splatUrl": "./splat_500k.spz"
+  }
+}

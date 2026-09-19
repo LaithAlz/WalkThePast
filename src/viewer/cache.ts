@@ -23,6 +23,7 @@ export function assetUrls(m: WorldManifest): string[] {
   const urls = [m.splat.url];
   if (m.source?.image) urls.push(m.source.image);
   if (m.pano?.url) urls.push(m.pano.url);
+  if (m.collider?.url) urls.push(m.collider.url);
   return urls;
 }
 
