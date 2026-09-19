@@ -67,7 +67,9 @@ def main() -> None:
 
     bundle = Path(args.bundle_dir) / args.id
     bundle.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(ply, bundle / "splat.ply")
+    # Lyra's "gaussians_*.ply" is a torch.save archive, not a PLY: convert to a real 3DGS PLY
+    import subprocess, sys as _sys
+    subprocess.run([_sys.executable, str(Path(__file__).with_name("lyra_pt_to_ply.py")), ply, str(bundle / "splat.ply")], check=True)
     src = bundle / ("source" + args.image.suffix.lower())
     shutil.copy2(args.image, src)
     if intr:
