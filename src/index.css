@@ -95,3 +95,14 @@
 .gen-options .check { display: flex; align-items: center; gap: 8px; color: #4c545f; font-size: 12px; }
 .gen-options .credits { color: #656d78; font: 10px 'IBM Plex Mono', monospace; letter-spacing: .12em; }
 .progress i { display: block; height: 100%; background: #4f7cff; transition: width .6s ease; }
+
+/* ---- imagine the other angles ---- */
+.views-step { width: 100%; text-align: left; display: grid; gap: 8px; padding: 12px; border: 1px solid rgba(79,124,255,.25); border-radius: 12px; background: rgba(79,124,255,.05); }
+.views-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.views-note { margin: 0; color: #656d78; font-size: 11.5px; line-height: 1.45; }
+.views-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.views-strip figure { margin: 0; }
+.views-strip img, .views-strip .view-error { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; background: #e9ecf1; display: block; }
+.views-strip .view-error { display: flex; align-items: center; justify-content: center; padding: 8px; color: #b04141; font-size: 10px; text-align: center; }
+.views-strip figcaption { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; color: #656d78; font: 9px 'IBM Plex Mono', monospace; letter-spacing: .12em; }
+.views-strip figcaption button { border: 0; background: transparent; color: #3557c7; cursor: pointer; font-size: 13px; }

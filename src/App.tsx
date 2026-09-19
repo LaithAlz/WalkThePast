@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth, useSignIn, useSignUp } from "@clerk/react";
 import { WorldCanvas } from "./components/WorldCanvas";
 import type { EvidenceCounts, Verdict } from "./viewer/Viewer";
-import { generateWorld, getCredits, getJob, historicalPrompt, MODEL_CREDITS, type Job, type MarbleModel } from "./lib/api";
-import { prepPhoto } from "./lib/prep";
+import { generateViews, generateWorld, getCredits, getJob, getViewProvider, historicalPrompt, MODEL_CREDITS, MULTI_IMAGE_CREDITS, type GeneratedView, type Job, type MarbleModel, type ViewProvider } from "./lib/api";
+import { prepPhoto, type PreppedImage } from "./lib/prep";
 
 type Screen = "landing" | "auth" | "upload" | "library" | "making" | "samples" | "explore";
 type AuthMode = "login" | "signup";
@@ -195,8 +195,35 @@ function Upload({ onBack, onGenerate, onExplore, onAuth, onLogin }: { onBack: ()
   const [credits, setCredits] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [provider, setProvider] = useState<ViewProvider>(null);
+  const [prepped, setPrepped] = useState<PreppedImage | null>(null);
+  const [views, setViews] = useState<GeneratedView[]>([]);
+  const [useViews, setUseViews] = useState(true);
   const fileInput = useRef<HTMLInputElement>(null);
-  useEffect(() => { void getCredits().then(setCredits); }, []);
+  useEffect(() => { void getCredits().then(setCredits); void getViewProvider().then(setProvider); }, []);
+  // "Imagine the other angles": right / back / left from the photographer's spot, fed to Marble by azimuth.
+  const imagineViews = async (directions?: GeneratedView["direction"][]) => {
+    const first = attachments.find((a) => a.kind === "image" && a.file);
+    if (!first?.file) return;
+    setError("");
+    try {
+      setBusy(directions ? "re-imagining…" : "imagining the other angles…");
+      const p = prepped ?? (await prepPhoto(first.file, { trimBorder: trim }));
+      setPrepped(p);
+      const fresh = await generateViews(p, text.trim() || undefined, directions);
+      setViews((cur) => {
+        const merged = [...cur];
+        for (const v of fresh) { const i = merged.findIndex((m) => m.direction === v.direction); if (i >= 0) merged[i] = v; else merged.push(v); }
+        return merged.sort((a, b) => a.azimuth - b.azimuth);
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const goodViews = views.filter((v) => v.dataBase64);
+  const sendingViews = useViews && goodViews.length > 0;
   const sourceForFile = (file: File): UploadSource | undefined => {
     const kind: SourceKind | undefined = file.type.startsWith("image/") ? "image"
       : file.type.startsWith("video/") ? "video"
@@ -210,11 +237,16 @@ function Upload({ onBack, onGenerate, onExplore, onAuth, onLogin }: { onBack: ()
     setError("");
     try {
       setBusy("preparing photographs…");
-      const prepped = [];
-      for (const a of imageFiles) prepped.push(await prepPhoto(a.file!, { trimBorder: trim }));
+      const photos: PreppedImage[] = [];
+      for (const a of imageFiles) photos.push(prepped && a === imageFiles[0] ? prepped : await prepPhoto(a.file!, { trimBorder: trim }));
       setBusy("sending to Marble…");
       const name = text.trim() ? text.trim().split(/[.\n]/)[0].slice(0, 48) : imageFiles[0].name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
-      const jobId = await generateWorld({ name, text: text.trim() || historicalPrompt(), model, images: prepped });
+      // images[0] is always the real photograph (azimuth 0): it stays the only provenance source
+      const images = sendingViews
+        ? [{ ...photos[0], azimuth: 0 }, ...goodViews.slice(0, 3).map((v) => ({ name: `${v.direction}.jpg`, mime: v.mime!, dataBase64: v.dataBase64!, azimuth: v.azimuth }))]
+        : photos;
+      const mode = sendingViews ? "azimuth" : photos.length > 1 ? "reconstruct" : "single";
+      const jobId = await generateWorld({ name, text: text.trim() || historicalPrompt(), model, images, mode });
       onGenerate({ jobId, name, sources });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -228,7 +260,7 @@ function Upload({ onBack, onGenerate, onExplore, onAuth, onLogin }: { onBack: ()
   const endDrag = (event: React.DragEvent<HTMLDivElement>) => { event.preventDefault(); if (event.currentTarget === event.target) setDragging(false); };
   const dropFiles = (event: React.DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); };
   const sources = [...(text.trim() ? [{ name: text.trim().slice(0, 60), kind: "text" as const }] : []), ...attachments];
-  return <main className="page upload-page"><Header signedOut onUpload={onAuth} onLogin={onLogin} /><section className="upload-layout"><div className="upload-copy"><button className="back-link" onClick={onBack}>← Back</button><h1>Build from<br /><em>what you know.</em></h1><div className="guest-note"><span>GUEST SESSION</span><p>Combine a memory with photographs, video, or written records. Make one world, keep it for seven days, then decide if you want to save it.</p></div><button className="button ghost" onClick={onAuth}>Create an account instead</button></div><div className="upload-panel"><div className={`dropzone ${dragging ? "is-dragging" : ""}`} onDragEnter={beginDrag} onDragOver={beginDrag} onDragLeave={endDrag} onDrop={dropFiles}><span className="upload-mark">✦</span><strong>Build a world from evidence</strong><p className="source-intro">Add a prompt, reference files, or both. Every source helps shape the world.</p><label className="text-source"><span>WHAT SHOULD WE RECONSTRUCT?</span><textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Describe a place, moment, or scene you want to walk through…" /></label><div className="source-divider">ADD REFERENCE MATERIAL</div><input ref={fileInput} className="visually-hidden" type="file" multiple accept="image/jpeg,image/png,image/tiff,image/webp,video/mp4,video/webm,video/quicktime,text/plain,text/markdown,.txt,.md" onChange={(event) => { addFiles(event.target.files ?? []); event.currentTarget.value = ""; }} /><button className="add-source" type="button" onClick={() => fileInput.current?.click()}>+ Add images, video, or text files</button>{attachments.length > 0 && <div className="source-list" aria-label="Attached source material">{attachments.map((source, index) => <span className="source-chip" key={`${source.name}-${index}`}><i>{source.kind}</i>{source.name}<button type="button" aria-label={`Remove ${source.name}`} onClick={() => removeAttachment(index)}>×</button></span>)}</div>}<div className="gen-options"><label><span>MODEL</span><select value={model} onChange={(e) => setModel(e.target.value as MarbleModel)}><option value="marble-1.0-draft">Draft · 230 credits · 1 min · rough</option><option value="marble-1.1">Marble 1.1 · 1 580 credits · 5 min</option><option value="marble-1.1-plus">Marble 1.1 Plus · up to 3 080 · larger outdoor world</option></select></label><label className="check"><input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} /> trim scan borders (recommended: a paper border becomes a picture frame)</label><span className="credits">{credits === null ? "credits: —" : `credits: ${credits.toLocaleString()} · this run: ${MODEL_CREDITS[model]}`}</span></div>{error && <p className="auth-error" role="alert">{error}</p>}<button className="button text-generate" type="button" disabled={!sources.length || !!busy} onClick={() => void generate()}>{busy ?? `Generate world${sources.length ? ` · ${sources.length} source${sources.length === 1 ? "" : "s"}` : ""}`}</button></div><p className="eyebrow archive-label">OR WALK ONE OF OURS</p><div className="sample-grid">{samples.map((sample) => <button className="sample-card" key={sample.label} onClick={onExplore}><img src={sample.image} alt="" /><span>{sample.label}</span></button>)}</div></div></section><Historian className="upload-historian" hue="green" /></main>;
+  return <main className="page upload-page"><Header signedOut onUpload={onAuth} onLogin={onLogin} /><section className="upload-layout"><div className="upload-copy"><button className="back-link" onClick={onBack}>← Back</button><h1>Build from<br /><em>what you know.</em></h1><div className="guest-note"><span>GUEST SESSION</span><p>Combine a memory with photographs, video, or written records. Make one world, keep it for seven days, then decide if you want to save it.</p></div><button className="button ghost" onClick={onAuth}>Create an account instead</button></div><div className="upload-panel"><div className={`dropzone ${dragging ? "is-dragging" : ""}`} onDragEnter={beginDrag} onDragOver={beginDrag} onDragLeave={endDrag} onDrop={dropFiles}><span className="upload-mark">✦</span><strong>Build a world from evidence</strong><p className="source-intro">Add a prompt, reference files, or both. Every source helps shape the world.</p><label className="text-source"><span>WHAT SHOULD WE RECONSTRUCT?</span><textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Describe a place, moment, or scene you want to walk through…" /></label><div className="source-divider">ADD REFERENCE MATERIAL</div><input ref={fileInput} className="visually-hidden" type="file" multiple accept="image/jpeg,image/png,image/tiff,image/webp,video/mp4,video/webm,video/quicktime,text/plain,text/markdown,.txt,.md" onChange={(event) => { addFiles(event.target.files ?? []); event.currentTarget.value = ""; }} /><button className="add-source" type="button" onClick={() => fileInput.current?.click()}>+ Add images, video, or text files</button>{attachments.length > 0 && <div className="source-list" aria-label="Attached source material">{attachments.map((source, index) => <span className="source-chip" key={`${source.name}-${index}`}><i>{source.kind}</i>{source.name}<button type="button" aria-label={`Remove ${source.name}`} onClick={() => removeAttachment(index)}>×</button></span>)}</div>}{imageFiles.length > 0 && <div className="views-step"><div className="views-head"><span className="eyebrow">IMAGINE THE OTHER ANGLES</span>{provider ? <button className="quiet-button" type="button" disabled={!!busy} onClick={() => void imagineViews()}>{views.length ? "Re-imagine all" : `Imagine right · back · left (${provider})`}</button> : <span className="views-note">needs GEMINI_API_KEY or OPENAI_API_KEY in .env</span>}</div><p className="views-note">The photograph stays the only evidence. These views tell Marble what to build around it, and they are classified as imagined.</p>{views.length > 0 && <div className="views-strip"><figure><img src={prepped ? `data:${prepped.mime};base64,${prepped.dataBase64}` : undefined} alt="" /><figcaption>FRONT · the photograph</figcaption></figure>{views.map((v) => <figure key={v.direction}>{v.dataBase64 ? <img src={`data:${v.mime};base64,${v.dataBase64}`} alt="" /> : <div className="view-error">{v.error ?? "failed"}</div>}<figcaption>{v.direction.toUpperCase()} · {v.azimuth}°<button type="button" disabled={!!busy} onClick={() => void imagineViews([v.direction])}>↻</button></figcaption></figure>)}</div>}{goodViews.length > 0 && <label className="check"><input type="checkbox" checked={useViews} onChange={(e) => setUseViews(e.target.checked)} /> send the imagined angles to Marble (multi-image, {MULTI_IMAGE_CREDITS[model]} credits)</label>}</div>}<div className="gen-options"><label><span>MODEL</span><select value={model} onChange={(e) => setModel(e.target.value as MarbleModel)}><option value="marble-1.0-draft">Draft · 230 credits · 1 min · rough</option><option value="marble-1.1">Marble 1.1 · 1 580 credits · 5 min</option><option value="marble-1.1-plus">Marble 1.1 Plus · up to 3 080 · larger outdoor world</option></select></label><label className="check"><input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} /> trim scan borders (recommended: a paper border becomes a picture frame)</label><span className="credits">{credits === null ? "credits: —" : `credits: ${credits.toLocaleString()} · this run: ${sendingViews ? MULTI_IMAGE_CREDITS[model] : MODEL_CREDITS[model]}`}</span></div>{error && <p className="auth-error" role="alert">{error}</p>}<button className="button text-generate" type="button" disabled={!sources.length || !!busy} onClick={() => void generate()}>{busy ?? `Generate world${sources.length ? ` · ${sources.length} source${sources.length === 1 ? "" : "s"}` : ""}`}</button></div><p className="eyebrow archive-label">OR WALK ONE OF OURS</p><div className="sample-grid">{samples.map((sample) => <button className="sample-card" key={sample.label} onClick={onExplore}><img src={sample.image} alt="" /><span>{sample.label}</span></button>)}</div></div></section><Historian className="upload-historian" hue="green" /></main>;
 }
 
 function SamplePicker({ onBack, onChoose }: { onBack: () => void; onChoose: (sample: SampleWorld) => void }) {

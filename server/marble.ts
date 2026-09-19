@@ -34,7 +34,10 @@ type GenerateBody = {
   name?: string;
   text?: string;
   model?: string;
-  images: { name: string; mime: string; dataBase64: string }[];
+  /** images[0] is always the real photograph (the provenance source). Others may carry an azimuth. */
+  images: { name: string; mime: string; dataBase64: string; azimuth?: number }[];
+  /** azimuth: images placed around the photographer (max 4); reconstruct: overlapping views of one scene (max 8) */
+  mode?: "single" | "azimuth" | "reconstruct";
   /** keep the free PLY export too (100+ MB; only needed for offline tooling) */
   ply?: boolean;
 };
@@ -117,15 +120,24 @@ async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: s
       assetIds.push(await marble.uploadImage(im.name, im.mime, Buffer.from(im.dataBase64, "base64")));
     }
     const text = body.text?.trim() || undefined;
+    const guidance = text ? { text_prompt: text, disable_recaption: true } : {};
+    const mode = body.mode ?? (assetIds.length === 1 ? "single" : "reconstruct");
     const prompt =
-      assetIds.length === 1
-        ? { type: "image", image_prompt: { source: "media_asset", media_asset_id: assetIds[0] }, is_pano: "auto", ...(text ? { text_prompt: text, disable_recaption: true } : {}) }
-        : {
-            type: "multi-image",
-            multi_image_prompt: assetIds.map((id) => ({ content: { source: "media_asset", media_asset_id: id } })),
-            reconstruct_images: true,
-            ...(text ? { text_prompt: text, disable_recaption: true } : {}),
-          };
+      mode === "single" || assetIds.length === 1
+        ? { type: "image", image_prompt: { source: "media_asset", media_asset_id: assetIds[0] }, is_pano: "auto", ...guidance }
+        : mode === "azimuth"
+          ? {
+              type: "multi-image",
+              multi_image_prompt: assetIds.map((id, i) => ({ azimuth: body.images[i].azimuth ?? 0, content: { source: "media_asset", media_asset_id: id } })),
+              reconstruct_images: false,
+              ...guidance,
+            }
+          : {
+              type: "multi-image",
+              multi_image_prompt: assetIds.map((id) => ({ content: { source: "media_asset", media_asset_id: id } })),
+              reconstruct_images: true,
+              ...guidance,
+            };
     t("generating with Marble (about 5 minutes)", "generating");
     let op = (await marble.generate({
       display_name: job.name.slice(0, 64),
@@ -201,7 +213,7 @@ async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: s
       pano: files.pano ? { url: "./pano.png", yawDeg: 90 } : null,
       bounds: { radiusM: 3.5 },
       credit: { title: job.name, photographer: "uploaded photograph", licence: "user upload" },
-      marble: { world_id: job.marbleWorldId, model: world.model ?? job.model, world_marble_url: world.world_marble_url, files, caption: world.assets.caption, prompt: text ?? null },
+      marble: { world_id: job.marbleWorldId, model: world.model ?? job.model, world_marble_url: world.world_marble_url, files, caption: world.assets.caption, prompt: text ?? null, mode, inputImages: body.images.length, azimuths: body.images.map((i) => i.azimuth ?? 0) },
       notes: "Generated through the in-app Marble bridge (server/marble.ts). Align the photographer (R, nudge, L) to make provenance exact.",
     };
     await fs.writeFile(path.join(dir, "world.json"), JSON.stringify(manifest, null, 2));
@@ -248,7 +260,7 @@ export function marbleApi(opts: { apiKey?: string; worldsDir: string }): Plugin 
         return send(res, 200, { ...job, elapsedS: Math.round((Date.now() - job.startedAt) / 1000) });
       }
       if (req.method === "GET" && url === "/api/worlds/jobs") return send(res, 200, [...jobs.values()]);
-      return send(res, 404, { error: "no such route" });
+      return next(); // other /api/* plugins (views) get their turn
     } catch (e) {
       return send(res, 500, { error: e instanceof Error ? e.message : String(e) });
     }
