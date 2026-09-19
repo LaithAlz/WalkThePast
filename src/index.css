@@ -87,3 +87,11 @@
 .photo-card .button { min-height: 40px; }
 .photo-card .button:disabled { opacity: .6; cursor: wait; }
 .photo-hint { margin: 10px 0 0; font: 9.5px 'IBM Plex Mono', monospace; letter-spacing: .12em; color: rgba(247,244,236,.5); }
+
+/* ---- generation options on the upload panel ---- */
+.gen-options { width: 100%; display: grid; gap: 8px; text-align: left; margin-top: 2px; }
+.gen-options label > span { display: block; margin-bottom: 5px; color: #656d78; font: 9px 'IBM Plex Mono', monospace; letter-spacing: .16em; }
+.gen-options select { width: 100%; border: 1px solid rgba(16,22,34,.15); border-radius: 9px; padding: 9px 10px; background: rgba(255,255,255,.72); color: #0f1318; font-size: 12.5px; }
+.gen-options .check { display: flex; align-items: center; gap: 8px; color: #4c545f; font-size: 12px; }
+.gen-options .credits { color: #656d78; font: 10px 'IBM Plex Mono', monospace; letter-spacing: .12em; }
+.progress i { display: block; height: 100%; background: #4f7cff; transition: width .6s ease; }
