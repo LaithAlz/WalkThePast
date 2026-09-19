@@ -1,10 +1,22 @@
 [
   {
+    "id": "marble-paris-cropped",
+    "name": "Rue Cardinale, Paris, 1922 (hero)"
+  },
+  {
     "id": "marble-giza",
-    "name": "Giza (hero)"
+    "name": "Giza plateau (illustration)"
+  },
+  {
+    "id": "marble-paris",
+    "name": "Rue Cardinale, uncropped scan (framed-picture failure case)"
+  },
+  {
+    "id": "marble-giza-draft",
+    "name": "Giza (draft model)"
   },
   {
     "id": "marble-sample-lane",
-    "name": "Marble sample · cobblestone lane (500k, CDN)"
+    "name": "Marble sample · cobblestone lane (CDN)"
   }
 ]

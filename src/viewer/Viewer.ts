@@ -27,6 +27,8 @@ export type Verdict = { label: string; reason: string; cls: 0 | 1 | 2 };
 
 export type ViewerCallbacks = {
   onStatus?: (status: ViewerStatus) => void;
+  /** Fired as soon as the manifest is parsed, before the splat streams (drives the photo landing). */
+  onManifest?: (manifest: WorldManifest) => void;
   onFps?: (fps: number) => void;
   onCounts?: (counts: EvidenceCounts) => void;
   onVerdict?: (verdict: Verdict | null) => void;
@@ -186,6 +188,7 @@ export class Viewer {
     }
     if (token !== this.loadToken || this.disposed) return;
     this.manifest = manifest;
+    this.cb.onManifest?.(manifest);
 
     const scale = manifest.metric?.scaleFactor ?? 1;
     const ground = manifest.metric?.groundPlaneOffset ?? 0;
@@ -233,6 +236,16 @@ export class Viewer {
 
   setEvidenceMode(on: boolean) {
     this.evidence.setMode(on && !!this.provenance);
+  }
+
+  /** While the photograph is showing, the world should not respond to input. */
+  setInteractive(on: boolean) {
+    this.controls.enabled = on;
+  }
+
+  /** The source photo's aspect (width / height), once loaded; null without a photo. */
+  get photoAspect(): number | null {
+    return this.sourceAspect;
   }
 
   /** Ease the camera back to the pose the photographer is believed to have occupied. */

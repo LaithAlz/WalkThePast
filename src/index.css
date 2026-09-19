@@ -70,3 +70,20 @@
 @media (max-width: 900px) { .sample-picker { width: min(620px, calc(100% - 44px)); margin-top: 10px; }.sample-picker-intro { margin-bottom: 28px; }.sample-picker-grid { grid-template-columns: 1fr; }.sample-picker-image { height: 210px; } }
 .explore-canvas { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; background: #0b0b0e; cursor: grab; touch-action: none; }
 .explore-loading { position: absolute; z-index: 5; top: 50%; left: 50%; padding: 14px 20px; border: 1px solid rgba(240,243,247,.12); border-radius: 12px; background: rgba(9,11,15,.72); color: rgba(240,243,247,.8); font: 10px 'IBM Plex Mono', monospace; letter-spacing: .14em; white-space: nowrap; backdrop-filter: blur(16px); transform: translate(-50%,-50%); }
+
+/* ---- photograph landing + crossfade + wipe (Phase 1 presentation layer) ---- */
+.explore-host { position: absolute; inset: 0; z-index: 0; background: #07090c; }
+.explore-stage { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); overflow: hidden; }
+.explore-stage .explore-canvas { position: absolute; inset: 0; }
+.explore-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; display: none; opacity: 0; z-index: 1; }
+.wipe-handle { position: absolute; top: 0; bottom: 0; width: 0; display: none; left: 50%; border-left: 2px solid #f2a93b; cursor: ew-resize; z-index: 3; }
+.wipe-handle span { position: absolute; top: 50%; left: -13px; width: 24px; height: 24px; border-radius: 50%; background: #f2a93b; transform: translateY(-50%); box-shadow: 0 0 0 3px rgba(0,0,0,.4); }
+.photo-landing { position: absolute; inset: 0; z-index: 2; display: flex; align-items: flex-end; padding: 36px; background: linear-gradient(to top, rgba(4,6,9,.72), rgba(4,6,9,0) 50%); }
+.photo-card { max-width: 520px; color: #f7f4ec; text-shadow: 0 2px 14px rgba(0,0,0,.7); }
+.photo-card .eyebrow { color: #f2a93b; }
+.photo-card h2 { margin: 6px 0 6px; font: 400 40px/1.1 'Instrument Serif', serif; }
+.photo-meta { margin: 0 0 4px; font: 11px 'IBM Plex Mono', monospace; letter-spacing: .14em; color: rgba(247,244,236,.85); }
+.photo-licence { margin: 0 0 16px; font: 10px 'IBM Plex Mono', monospace; letter-spacing: .1em; color: rgba(247,244,236,.55); }
+.photo-card .button { min-height: 40px; }
+.photo-card .button:disabled { opacity: .6; cursor: wait; }
+.photo-hint { margin: 10px 0 0; font: 9.5px 'IBM Plex Mono', monospace; letter-spacing: .12em; color: rgba(247,244,236,.5); }
