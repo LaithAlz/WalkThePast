@@ -1,0 +1,19 @@
+{
+  "source": "assets/sources/candidates/paris-rue-cardinale-1922.jpg",
+  "source_size": [
+    4133,
+    3375
+  ],
+  "crop_box_source_px": [
+    130,
+    105,
+    3940,
+    3235
+  ],
+  "scale_after_crop": 1.0,
+  "output_size": [
+    3810,
+    3130
+  ],
+  "note": "crop_box is [left, top, right, bottom] in original scan pixels; output = source.crop(box) * scale"
+}
