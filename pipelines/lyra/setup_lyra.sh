@@ -51,7 +51,16 @@ pip install --no-build-isolation "git+https://github.com/state-spaces/mamba@v2.2
 
 CUDA_HOME="$CONDA_PREFIX" PYTHONPATH="$(pwd)" python scripts/test_environment.py
 
-# --- checkpoints (needs `huggingface-cli login`) ---------------------------------
+# --- checkpoints (needs a Hugging Face token) --------------------------------------
+if [ -n "${HF_TOKEN:-}" ]; then
+  huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential >/dev/null 2>&1 || hf auth login --token "$HF_TOKEN" >/dev/null 2>&1 || true
+fi
+if [ -z "${HF_TOKEN:-}" ] && ! huggingface-cli whoami >/dev/null 2>&1; then
+  echo
+  echo "ENV READY. Checkpoints skipped: no Hugging Face token."
+  echo "Re-run with  HF_TOKEN=hf_xxx bash $0 $ROOT   to download them (~40 GB)."
+  exit 0
+fi
 python3 -m scripts.download_tokenizer_checkpoints --checkpoint_dir checkpoints/cosmos_predict1 --tokenizer_types CV8x8x8-720p
 python scripts/download_gen3c_checkpoints.py --checkpoint_dir checkpoints
 python scripts/download_lyra_checkpoints.py --checkpoint_dir checkpoints
