@@ -50,14 +50,18 @@ def die(msg: str) -> None:
     sys.exit(1)
 
 
+KEY_NAMES = ("WORLDLABS_API_KEY", "WORLDLAB_API_KEY", "WLT_API_KEY")
+
+
 def api_key() -> str:
-    key = os.environ.get("WORLDLABS_API_KEY")
+    key = next((os.environ[k] for k in KEY_NAMES if os.environ.get(k)), None)
     if not key:
         env = REPO / ".env"
         if env.exists():
             for line in env.read_text().splitlines():
-                if line.startswith("WORLDLABS_API_KEY="):
-                    key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                name, _, val = line.strip().partition("=")
+                if name.strip() in KEY_NAMES and val:
+                    key = val.strip().strip('"').strip("'")
     if not key:
         die("set WORLDLABS_API_KEY (env or .env). Keys: https://platform.worldlabs.ai/api-keys")
     return key
@@ -86,10 +90,12 @@ class Marble:
             )
         )
         info = prep["upload_info"]
-        put = requests.put(info["upload_url"], headers=info.get("required_headers", {}), data=path.read_bytes())
+        method = (info.get("upload_method") or "PUT").upper()
+        put = requests.request(method, info["upload_url"], headers=info.get("required_headers") or {}, data=path.read_bytes())
         if put.status_code >= 400:
             die(f"upload PUT failed {put.status_code}: {put.text[:300]}")
-        return prep["media_asset"]["id"]
+        ma = prep["media_asset"]
+        return ma.get("media_asset_id") or ma["id"]
 
     def generate(self, media_asset_id: str, *, model: str, name: str, text: str | None, seed: int | None) -> dict:
         prompt: dict = {

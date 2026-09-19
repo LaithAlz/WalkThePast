@@ -1,4 +1,14 @@
 [
-  { "id": "marble-sample-lane", "name": "Marble sample · cobblestone lane (500k, CDN)" },
-  { "id": "marble-sample-library", "name": "Marble sample · library (500k, CDN)" }
+  {
+    "id": "marble-giza-draft",
+    "name": "Marble \u00b7 Giza (draft)"
+  },
+  {
+    "id": "marble-sample-lane",
+    "name": "Marble sample \u00b7 cobblestone lane (500k, CDN)"
+  },
+  {
+    "id": "marble-sample-library",
+    "name": "Marble sample \u00b7 library (500k, CDN)"
+  }
 ]
