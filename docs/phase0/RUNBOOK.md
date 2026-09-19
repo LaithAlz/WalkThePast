@@ -75,6 +75,22 @@ Notes
 - If `save_gaussians` is not honoured by the config, look for `gaussians/*.ply` under `outputs/` and pass
   `--ply` to `collect_outputs.py` explicitly.
 
+## 2b. Lessons from the first live runs (2026-09-19)
+
+- **Trim scan borders first.** Marble reproduced the Atget print's paper border as a picture frame and built a
+  world where the photo hangs *inside a shop window*. Run `pipelines/prep_photo.py` (explicit `--crop` beats
+  `--auto-border` on textured paper) and generate from `assets/sources/prepped/`. The `.crop.json` sidecar keeps the
+  crop box in original-scan pixels for later camera mapping.
+- **Use the full-res tier.** `splat_full_res.spz` (~2M splats) is far sharper up close than 500k; Spark's LoD keeps
+  60 fps on the M1. Manifests default to it now; `?splat=splat_500k.spz` swaps tiers.
+- **Why Marble's site looks better:** it composites the 360 pano behind the splats, renders every splat, and fences
+  you to a few metres. The viewer now does all three (`pano` + `bounds.radiusM` in world.json; `?pano=0`,
+  `?radius=0`, `?budget=N`, `?lod=0` to A/B). Pano yaw for Marble exports is 90° (verified against the photo).
+- **Input resolution caps close-up quality.** The 512 px Giza illustration is blurry at arm's length no matter the tier.
+- **Lyra 1.0 on RunPod:** H100 SXM secure cloud, build on local disk (network volume is too slow for conda), ~75 GB of
+  checkpoints, apex from master needs `list[int]`→`List[int]` patched for torch 2.6, guardrail/Pixtral/Llama-Guard
+  downloads are not needed (inference force-disables them). GEN3C stage ≈ 6 min per trajectory × 6.
+
 ## 3. Camera-alignment test (the actual exit gate)
 
 For each generated world:
