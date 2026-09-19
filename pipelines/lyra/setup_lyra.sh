@@ -6,28 +6,43 @@
 #   - RunPod / Lambda / Vast: 1x A100-80GB or H100 pod, Ubuntu 22.04, CUDA 12.x image with conda
 #   - Modal / Baseten: wrap this script in a custom image (heavier; only if you need it as a service)
 #
-# Usage:  bash setup_lyra.sh [/workspace]
-# Needs:  `huggingface-cli login` (HF token) before checkpoint downloads.
-set -euo pipefail
+# Usage:  bash setup_lyra.sh [ROOT=/opt/wtp] [PERSIST=/workspace]
+#   ROOT     fast local disk for conda + repo + compiled extensions (many small files)
+#   PERSIST  persistent volume for the ~40 GB of checkpoints (few big files); symlinked into the repo
+# Needs:  HF_TOKEN env var (or a cached `huggingface-cli login`) for checkpoint downloads.
+set -eo pipefail  # no -u: conda activation scripts reference unset vars
 
 ROOT="${1:-$PWD}"
+PERSIST="${2:-$ROOT}"
+mkdir -p "$ROOT" "$PERSIST"
 cd "$ROOT"
 
-if ! command -v conda >/dev/null 2>&1; then
+if [ -x "$ROOT/miniconda3/bin/conda" ]; then
+  # shellcheck disable=SC1091
+  source "$ROOT/miniconda3/etc/profile.d/conda.sh"
+elif command -v conda >/dev/null 2>&1; then
+  # shellcheck disable=SC1091
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+else
   echo "conda not found. Installing Miniconda to $ROOT/miniconda3 …"
   curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
   bash /tmp/miniconda.sh -b -p "$ROOT/miniconda3"
   # shellcheck disable=SC1091
   source "$ROOT/miniconda3/etc/profile.d/conda.sh"
-else
-  # shellcheck disable=SC1091
-  source "$(conda info --base)/etc/profile.d/conda.sh"
 fi
+# Newer Miniconda refuses to solve until the Anaconda channel ToS are accepted (lyra.yaml itself only uses conda-forge).
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main >/dev/null 2>&1 || true
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r >/dev/null 2>&1 || true
 
 if [ ! -d lyra ]; then
   git clone https://github.com/nv-tlabs/lyra.git
 fi
 cd lyra/Lyra-1
+
+# keep the big downloads on the persistent volume
+mkdir -p "$PERSIST/checkpoints" "$PERSIST/assets_demo"
+[ -L checkpoints ] || { rm -rf checkpoints; ln -s "$PERSIST/checkpoints" checkpoints; }
+mkdir -p assets && { [ -L assets/demo ] || { rm -rf assets/demo; ln -s "$PERSIST/assets_demo" assets/demo; }; }
 
 # --- INSTALL.md, verbatim order -------------------------------------------------
 if ! conda env list | grep -qE '^lyra\s'; then
