@@ -40,4 +40,24 @@
 .source-chip i { color: #3557c7; font: 9px 'IBM Plex Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
 .source-chip button { width: 18px; height: 18px; border: 0; border-radius: 50%; color: #656d78; background: rgba(16, 22, 34, .07); line-height: 1; }
 .source-chip button:hover { color: #0f1318; background: rgba(16, 22, 34, .14); }
+.sample-picker { position: relative; z-index: 1; width: calc(100% - 112px); max-width: 1328px; margin: 18px auto 72px; }
+.sample-picker-intro { max-width: 610px; margin-bottom: 42px; }
+.sample-picker-intro h1 { margin: 18px 0 0; font: 400 clamp(52px, 5vw, 72px)/.98 'Instrument Serif', Georgia, serif; letter-spacing: -.025em; }
+.sample-picker-intro h1 em { color: #3557c7; }
+.sample-picker-intro > p:last-child { max-width: 490px; margin: 19px 0 35px; color: #4c545f; font-size: 15px; line-height: 1.65; }
+.sample-picker-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+.sample-picker-card { min-width: 0; overflow: hidden; padding: 0; border: 1px solid rgba(16, 22, 34, .12); border-radius: 15px; color: inherit; text-align: left; background: #fff; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.sample-picker-card:hover { border-color: rgba(79, 124, 255, .58); box-shadow: 0 18px 34px rgba(15, 19, 24, .1); transform: translateY(-3px); }
+.sample-picker-image { position: relative; height: 190px; overflow: hidden; background: #16181d; }
+.sample-picker-image img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(24%) contrast(1.04); transition: transform .35s ease; }
+.sample-picker-card:hover .sample-picker-image img { transform: scale(1.04); }
+.sample-picker-image span { position: absolute; top: 13px; left: 13px; padding: 5px 9px; border-radius: 99px; color: #8af0ba; background: rgba(8, 10, 13, .72); font: 9px 'IBM Plex Mono', monospace; letter-spacing: .14em; }
+.sample-picker-info { display: block; min-height: 167px; padding: 17px 18px 18px; }
+.sample-picker-info p, .sample-picker-info b { margin: 0; color: #656d78; font: 9px 'IBM Plex Mono', monospace; letter-spacing: .13em; }
+.sample-picker-info h2 { margin: 10px 0 7px; font: 400 24px 'Instrument Serif', Georgia, serif; }
+.sample-picker-info > span { display: block; min-height: 35px; color: #4c545f; font-size: 12px; line-height: 1.45; }
+.sample-picker-info b { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; color: #3557c7; font-weight: 400; }
+.sample-picker-info b i { font: 18px/1 Manrope, sans-serif; }
+@media (max-width: 1200px) { .sample-picker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .auth-card { margin: 0 22px; } }
+@media (max-width: 900px) { .sample-picker { width: min(620px, calc(100% - 44px)); margin-top: 10px; }.sample-picker-intro { margin-bottom: 28px; }.sample-picker-grid { grid-template-columns: 1fr; }.sample-picker-image { height: 210px; } }

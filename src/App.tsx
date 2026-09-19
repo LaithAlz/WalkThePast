@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth, useSignIn, useSignUp } from "@clerk/react";
 
-type Screen = "landing" | "auth" | "upload" | "library" | "making" | "explore";
+type Screen = "landing" | "auth" | "upload" | "library" | "making" | "samples" | "explore";
 type AuthMode = "login" | "signup";
 type SourceKind = "image" | "video" | "text";
 type UploadSource = { name: string; kind: SourceKind };
+type SampleWorld = { title: string; place: string; date: string; evidence: string; image: string; note: string; quote: string };
 
 const images = {
   atget: "/assets/atget-paris.jpg",
@@ -23,12 +24,22 @@ const worlds = [
   { title: "Corso Buenos Aires", detail: "MILAN · 1913 · 29% SOURCE-VISIBLE", image: images.omnibus },
 ];
 
+const sampleWorlds: SampleWorld[] = [
+  { title: "Rue de la Montagne", place: "PARIS, FRANCE", date: "1898", evidence: "41% SOURCE-VISIBLE", image: images.atget, note: "A quiet Paris street, reconstructed from Atget's camera position.", quote: "You’re standing where the original photographer stood." },
+  { title: "Rue Mouffetard", place: "PARIS, FRANCE", date: "1898", evidence: "41% SOURCE-VISIBLE", image: images.mouffetard, note: "Market life and facades along one of Paris's oldest streets.", quote: "The market continues beyond the edge of the original plate." },
+  { title: "Mulberry Street", place: "NEW YORK, USA", date: "1906", evidence: "38% SOURCE-VISIBLE", image: images.mulberry, note: "A dense Lower East Side street shaped by migration and trade.", quote: "The crowd is evidence; the street beyond it is carefully inferred." },
+  { title: "Rue Montmartre", place: "PARIS, FRANCE", date: "1900", evidence: "44% SOURCE-VISIBLE", image: images.montmartre, note: "The boulevard at the turn of the century, seen at street level.", quote: "These buildings are anchored to what the camera captured." },
+  { title: "Boulevard de la Madeleine", place: "PARIS, FRANCE", date: "1902", evidence: "52% SOURCE-VISIBLE", image: images.boulevard, note: "A broad avenue of carriages, storefronts, and early city movement.", quote: "This is our most evidence-rich sample world." },
+];
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("landing");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [evidence, setEvidence] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [uploadSources, setUploadSources] = useState<UploadSource[]>([]);
+  const [activeSample, setActiveSample] = useState<SampleWorld>(sampleWorlds[0]);
+  const [exploreReturn, setExploreReturn] = useState<"library" | "samples">("samples");
   const { isSignedIn } = useAuth();
 
   useEffect(() => {
@@ -46,7 +57,8 @@ export default function App() {
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [screen]);
 
-  const explore = () => { setEvidence(false); setScreen("explore"); };
+  const explore = () => { setActiveSample(sampleWorlds[0]); setExploreReturn("library"); setEvidence(false); setScreen("explore"); };
+  const chooseSample = (sample: SampleWorld) => { setActiveSample(sample); setExploreReturn("samples"); setEvidence(false); setScreen("explore"); };
   const startGeneration = (sources: UploadSource[]) => { setUploadSources(sources); setScreen("making"); };
 
   const openAuth = (mode: AuthMode) => { setAuthMode(mode); setScreen("auth"); };
@@ -54,9 +66,10 @@ export default function App() {
   if (screen === "auth") return <Auth mode={authMode} onBack={() => setScreen("landing")} onAuthenticated={() => setScreen("library")} onModeChange={setAuthMode} />;
   if (screen === "upload") return <Upload onBack={() => setScreen("landing")} onGenerate={startGeneration} onExplore={explore} onAuth={() => openAuth("signup")} onLogin={() => openAuth("login")} />;
   if (screen === "making") return <Making sources={uploadSources} onLibrary={() => setScreen("library")} />;
+  if (screen === "samples") return <SamplePicker onBack={() => setScreen("landing")} onChoose={chooseSample} />;
   if (screen === "library") return <Library onNew={() => setScreen("upload")} onExplore={explore} />;
-  if (screen === "explore") return <Explore evidence={evidence} speaking={speaking} onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => setScreen("library")} />;
-  return <Landing onUpload={() => setScreen("upload")} onLogin={() => openAuth("login")} onSignUp={() => openAuth("signup")} onExplore={explore} />;
+  if (screen === "explore") return <Explore world={activeSample} evidence={evidence} speaking={speaking} onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => setScreen(exploreReturn)} />;
+  return <Landing onUpload={() => setScreen("upload")} onLogin={() => openAuth("login")} onSignUp={() => openAuth("signup")} onExplore={() => setScreen("samples")} />;
 }
 
 function Brand({ light = false }: { light?: boolean }) {
@@ -180,6 +193,10 @@ function Upload({ onBack, onGenerate, onExplore, onAuth, onLogin }: { onBack: ()
   return <main className="page upload-page"><Header signedOut onUpload={onAuth} onLogin={onLogin} /><section className="upload-layout"><div className="upload-copy"><button className="back-link" onClick={onBack}>← Back</button><h1>Build from<br /><em>what you know.</em></h1><div className="guest-note"><span>GUEST SESSION</span><p>Combine a memory with photographs, video, or written records. Make one world, keep it for seven days, then decide if you want to save it.</p></div><button className="button ghost" onClick={onAuth}>Create an account instead</button></div><div className="upload-panel"><div className={`dropzone ${dragging ? "is-dragging" : ""}`} onDragEnter={beginDrag} onDragOver={beginDrag} onDragLeave={endDrag} onDrop={dropFiles}><span className="upload-mark">✦</span><strong>Build a world from evidence</strong><p className="source-intro">Add a prompt, reference files, or both. Every source helps shape the world.</p><label className="text-source"><span>WHAT SHOULD WE RECONSTRUCT?</span><textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Describe a place, moment, or scene you want to walk through…" /></label><div className="source-divider">ADD REFERENCE MATERIAL</div><input ref={fileInput} className="visually-hidden" type="file" multiple accept="image/jpeg,image/png,image/tiff,image/webp,video/mp4,video/webm,video/quicktime,text/plain,text/markdown,.txt,.md" onChange={(event) => { addFiles(event.target.files ?? []); event.currentTarget.value = ""; }} /><button className="add-source" type="button" onClick={() => fileInput.current?.click()}>+ Add images, video, or text files</button>{attachments.length > 0 && <div className="source-list" aria-label="Attached source material">{attachments.map((source, index) => <span className="source-chip" key={`${source.name}-${index}`}><i>{source.kind}</i>{source.name}<button type="button" aria-label={`Remove ${source.name}`} onClick={() => removeAttachment(index)}>×</button></span>)}</div>}<button className="button text-generate" type="button" disabled={!sources.length} onClick={() => onGenerate(sources)}>Generate world{sources.length ? ` · ${sources.length} source${sources.length === 1 ? "" : "s"}` : ""}</button></div><p className="eyebrow archive-label">OR WALK ONE OF OURS</p><div className="sample-grid">{samples.map((sample) => <button className="sample-card" key={sample.label} onClick={onExplore}><img src={sample.image} alt="" /><span>{sample.label}</span></button>)}</div></div></section><Historian className="upload-historian" color="green" /></main>;
 }
 
+function SamplePicker({ onBack, onChoose }: { onBack: () => void; onChoose: (sample: SampleWorld) => void }) {
+  return <main className="page sample-page"><header className="site-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></header><section className="sample-picker"><div className="sample-picker-intro"><h1>Choose a world<br /><em>to step into.</em></h1></div><div className="sample-picker-grid">{sampleWorlds.map((sample) => <button className="sample-picker-card" key={sample.title} onClick={() => onChoose(sample)}><div className="sample-picker-image"><img src={sample.image} alt="" /><span>READY TO WALK</span></div><div className="sample-picker-info"><p>{sample.place} · {sample.date}</p><h2>{sample.title}</h2><span>{sample.note}</span><b>{sample.evidence} <i>→</i></b></div></button>)}</div></section></main>;
+}
+
 function Library({ onNew, onExplore }: { onNew: () => void; onExplore: () => void }) {
   return <main className="page library-page"><Header onUpload={onNew} onLibrary={() => undefined} /><section className="library-intro"><div><h1>Your worlds</h1><p>6 reconstructions · 1 still building</p></div><div className="actions"><button className="select">Recent</button><button className="button compact" onClick={onNew}>New world</button></div></section><section className="world-grid">{worlds.map((world) => <WorldCard key={world.title} world={world} onClick={onExplore} />)}<button className="new-card" onClick={onNew}><span>+</span>Create a world</button></section></main>;
 }
@@ -190,8 +207,8 @@ function Making({ sources, onLibrary }: { sources: UploadSource[]; onLibrary: ()
   return <main className="making-page"><Brand /><div className="making-image"><img src={images.mouffetard} alt="Historical street photograph" /></div><div className="point-field" /><section className="making-copy"><h1>Making your world</h1><p>This takes about five minutes. You can close this tab — we'll email you the moment it’s ready to walk.</p><div className="progress"><i /></div><div className="progress-meta"><span>{sources.length ? `${sources.length} SOURCE${sources.length === 1 ? "" : "S"} · ${sources.map((source) => source.kind.toUpperCase()).join(" + ")}` : "RUE MOUFFETARD · 1898"}</span><span>3:47 LEFT</span></div></section><div className="making-actions"><button className="button ghost" onClick={onLibrary}>Notify me and close</button><button className="quiet-button" onClick={onLibrary}>Back to library</button></div></main>;
 }
 
-function Explore({ evidence, speaking, onToggleEvidence, onExit }: { evidence: boolean; speaking: boolean; onToggleEvidence: () => void; onExit: () => void }) {
-  return <main className={`explore-page ${evidence ? "evidence-mode" : ""}`}><img className="explore-photo" src={images.atget} alt="Historical street reconstruction view" /><div className="explore-vignette" />{evidence && <div className="evidence-map" />}{evidence && <div className="frustum"><span>ORIGINAL PLATE — 1898 · 6.4 M BEHIND YOU</span><i /><b /></div>}<div className="crosshair" /><div className="explore-top"><Brand light /><div className="explore-buttons"><button onClick={onToggleEvidence}>{evidence ? "Exit evidence" : "Evidence mode"}</button><button onClick={onExit}>Leave world</button></div></div>{evidence && <aside className="legend"><p>EVIDENCE</p><span><i className="green" />SOURCE-VISIBLE · 41%</span><span><i className="amber" />OCCLUDED · INFERRED · 34%</span><span><i className="purple" />UNSUPPORTED · 25%</span></aside>}<div className="explore-caption"><Historian color={evidence ? "amber" : "green"} speaking={speaking} /><blockquote>{evidence ? "“You're looking at a wall the camera never saw. Its height comes from the building opposite.”" : "“You’re standing where the original photographer stood.”"}</blockquote><p>HOLD SPACE TO SPEAK · PRESS E FOR EVIDENCE</p></div></main>;
+function Explore({ world, evidence, speaking, onToggleEvidence, onExit }: { world: SampleWorld; evidence: boolean; speaking: boolean; onToggleEvidence: () => void; onExit: () => void }) {
+  return <main className={`explore-page ${evidence ? "evidence-mode" : ""}`}><img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} /><div className="explore-vignette" />{evidence && <div className="evidence-map" />}{evidence && <div className="frustum"><span>ORIGINAL PLATE — {world.date} · 6.4 M BEHIND YOU</span><i /><b /></div>}<div className="crosshair" /><div className="explore-top"><Brand light /><div className="explore-buttons"><button onClick={onToggleEvidence}>{evidence ? "Exit evidence" : "Evidence mode"}</button><button onClick={onExit}>Leave world</button></div></div>{evidence && <aside className="legend"><p>EVIDENCE · {world.title.toUpperCase()}</p><span><i className="green" />SOURCE-VISIBLE · {world.evidence.split(" ")[0]}</span><span><i className="amber" />OCCLUDED · INFERRED · 34%</span><span><i className="purple" />UNSUPPORTED · 25%</span></aside>}<div className="explore-caption"><Historian color={evidence ? "amber" : "green"} speaking={speaking} /><blockquote>{evidence ? "“You're looking at a wall the camera never saw. Its height comes from the building opposite.”" : `“${world.quote}”`}</blockquote><p>{world.place} · {world.date} · HOLD SPACE TO SPEAK · PRESS E FOR EVIDENCE</p></div></main>;
 }
 
 function Historian({ className = "", color, speaking = false }: { className?: string; color: "green" | "amber"; speaking?: boolean }) { return <img className={`historian ${className} ${color} ${speaking ? "speaking" : ""}`} src="/assets/historian-amber-orb.png" alt="" />; }
