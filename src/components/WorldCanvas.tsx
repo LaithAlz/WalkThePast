@@ -6,9 +6,13 @@ import type { WorldManifest } from "../viewer/world";
 type Props = {
   worldId: string;
   evidence: boolean;
+  autoEnter?: boolean;
   onCounts?: (counts: EvidenceCounts) => void;
   onVerdict?: (verdict: Verdict | null) => void;
   onMode?: (mode: Mode) => void;
+  onReady?: (ready: boolean) => void;
+  suspended?: boolean;
+  onSnapshot?: (dataUrl: string) => void;
 };
 
 /**
@@ -16,7 +20,7 @@ type Props = {
  * rendered view share the exact same frame: that is what makes the crossfade from
  * the photograph into the photographer's pose line up.
  */
-export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onMode }: Props) {
+export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -81,8 +85,25 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onMode }: 
   }, [worldId]);
 
   useEffect(() => {
+    onReady?.(status.kind === "ready");
+  }, [status, onReady]);
+
+  useEffect(() => {
     viewerRef.current?.setEvidenceMode(evidence);
   }, [evidence]);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    if (suspended) {
+      onSnapshot?.(viewer.captureSnapshot());
+      viewer.setInteractive(false);
+      viewer.stop();
+    } else {
+      viewer.start();
+      viewer.setInteractive(mode === "world");
+    }
+  }, [suspended, onSnapshot, mode]);
 
   const ready = status.kind === "ready";
   const enter = async () => {
@@ -96,7 +117,7 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onMode }: 
   useEffect(() => {
     if (status.kind !== "ready") return;
     setAspect(viewerRef.current?.photoAspect ?? null);
-    if (!manifest?.source?.image) void enter(); // nothing to fade from
+    if (autoEnter || !manifest?.source?.image) void enter(); // preview routes skip the photo landing
   }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -164,7 +185,7 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onMode }: 
           </div>
         )}
       </div>
-      {status.kind !== "ready" && mode !== "photo" && <div className="explore-loading">{describe(status)}</div>}
+      {status.kind !== "ready" && (mode !== "photo" || status.kind === "error") && <div className={`explore-loading${status.kind === "error" ? " is-error" : ""}`}>{describe(status)}</div>}
     </div>
   );
 }

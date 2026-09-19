@@ -104,7 +104,7 @@ export class Viewer {
     this.controls = new FirstPersonControls(canvas, this.camera);
 
     this.onKeyDown = (e) => {
-      if (e.code === "KeyR") this.resetToPhotographer();
+      if (this.frameHandle && e.code === "KeyR") this.resetToPhotographer();
     };
     document.addEventListener("keydown", this.onKeyDown);
 
@@ -148,6 +148,12 @@ export class Viewer {
   stop() {
     cancelAnimationFrame(this.frameHandle);
     this.frameHandle = 0;
+  }
+
+  /** Freeze the exact current camera view before handing the screen to a non-WebGL experience. */
+  captureSnapshot(): string {
+    this.renderer.render(this.scene, this.camera);
+    return this.canvas.toDataURL("image/jpeg", 0.9);
   }
 
   resize() {
@@ -243,7 +249,7 @@ export class Viewer {
 
   /** While the photograph is showing, the world should not respond to input. */
   setInteractive(on: boolean) {
-    this.controls.enabled = on;
+    this.controls.setEnabled(on);
   }
 
   /** The source photo's aspect (width / height), once loaded; null without a photo. */

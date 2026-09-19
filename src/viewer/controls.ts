@@ -75,7 +75,7 @@ export class FirstPersonControls {
     this.on(canvas, "pointercancel", endDrag);
     this.on(document, "keydown", (e) => {
       const ev = e as KeyboardEvent;
-      if (isTyping(ev)) return;
+      if (!this.enabled || isTyping(ev)) return;
       if (ev.code in MOVE_KEYS) {
         this.keys.add(ev.code);
         ev.preventDefault();
@@ -107,6 +107,14 @@ export class FirstPersonControls {
     this.pitch = this.euler.x;
     this.clampPitch();
     this.applyRotation();
+  }
+
+  setEnabled(enabled: boolean) {
+    this.enabled = enabled;
+    if (enabled) return;
+    this.keys.clear();
+    this.dragging = false;
+    this.canvas.style.cursor = "";
   }
 
   private clampPitch() {
