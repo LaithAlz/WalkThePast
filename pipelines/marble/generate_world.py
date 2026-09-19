@@ -117,10 +117,18 @@ class Marble:
         return self._check(self.s.post(f"{API}/worlds:generate", json=body))
 
     def operation(self, op_id: str) -> dict:
-        return self._check(self.s.get(f"{API}/operations/{op_id}"))
+        # transient resets happen on long polls; retry a few times before giving up
+        for attempt in range(6):
+            try:
+                return self._check(self.s.get(f"{API}/operations/{op_id}", timeout=60))
+            except (requests.ConnectionError, requests.Timeout) as e:
+                print(f"  (poll error, retry {attempt + 1}/6: {type(e).__name__})", flush=True)
+                time.sleep(5 * (attempt + 1))
+        die(f"operation {op_id} unreachable after retries")
 
     def wait(self, op: dict, label: str, every: float = 8.0) -> dict:
         op_id = op["operation_id"]
+        print(f"  [{label}] operation_id = {op_id}", flush=True)
         t0 = time.time()
         while not op.get("done"):
             prog = (op.get("metadata") or {}).get("progress") or {}
