@@ -1,0 +1,90 @@
+:root {
+  --bg: #0d0b09;
+  --ink: #f2ece2;
+  --muted: #9b9086;
+  --panel: rgba(13, 11, 9, 0.72);
+  --line: rgba(242, 236, 226, 0.14);
+
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+.stage {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.stage-canvas {
+  display: block;
+  height: 100%;
+  width: 100%;
+  /* Spark's pointer controls need the canvas to own touch gestures. */
+  touch-action: none;
+}
+
+.hud {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  font-size: 13px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.hud-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.hud-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.hud-fps {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.hud-fps-good { color: #7ddc9a; }
+.hud-fps-warn { color: #e3c06a; }
+.hud-fps-bad  { color: #e88a7d; }
+
+.hud-status {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.hud-hint {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
