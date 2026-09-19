@@ -13,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@clerk/react": "^6.16.1",
     "@sparkjsdev/spark": "^2.2.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
