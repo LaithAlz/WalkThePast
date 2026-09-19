@@ -51,7 +51,7 @@ export default function App() {
   const openAuth = (mode: AuthMode) => { setAuthMode(mode); setScreen("auth"); };
 
   if (screen === "auth") return <Auth mode={authMode} onBack={() => setScreen("landing")} onAuthenticated={() => setScreen("library")} onModeChange={setAuthMode} />;
-  if (screen === "upload") return <Upload onBack={() => setScreen("landing")} onBrowse={() => fileInput.current?.click()} onExplore={explore} onAuth={() => openAuth("signup")} onLogin={() => openAuth("login")}><input ref={fileInput} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/tiff" onChange={(event) => chooseFile(event.target.files?.[0])} /></Upload>;
+  if (screen === "upload") return <Upload onBack={() => setScreen("landing")} onBrowse={() => fileInput.current?.click()} onFile={chooseFile} onExplore={explore} onAuth={() => openAuth("signup")} onLogin={() => openAuth("login")}><input ref={fileInput} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/tiff" onChange={(event) => chooseFile(event.target.files?.[0])} /></Upload>;
   if (screen === "making") return <Making name={uploadName} onLibrary={() => setScreen("library")} />;
   if (screen === "library") return <Library onNew={() => setScreen("upload")} onExplore={explore} />;
   if (screen === "explore") return <Explore evidence={evidence} speaking={speaking} onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => setScreen("library")} />;
@@ -106,7 +106,7 @@ function Auth({ mode, onBack, onAuthenticated, onModeChange }: { mode: AuthMode;
         setStage("verify");
         return;
       }
-      const { error: clerkError } = await signIn.password({ emailAddress: email, password });
+      const { error: clerkError } = await signIn.password({ identifier: email, password });
       if (clerkError) { setError(messageFor(clerkError)); return; }
       if (signIn.status === "complete") { await finish(signIn); return; }
       if (signIn.status === "needs_client_trust") {
@@ -115,6 +115,22 @@ function Auth({ mode, onBack, onAuthenticated, onModeChange }: { mode: AuthMode;
         return;
       }
       setError("This sign-in needs an additional verification step that is not available for this account.");
+    } catch (reason) { setError(messageFor(reason)); }
+    finally { setSubmitting(false); }
+  };
+  const continueWithGoogle = async () => {
+    setError("");
+    setSubmitting(true);
+    try {
+      const options = {
+        strategy: "oauth_google" as const,
+        redirectUrl: window.location.origin,
+        redirectCallbackUrl: window.location.origin,
+      };
+      const { error: clerkError } = mode === "signup"
+        ? await signUp.sso(options)
+        : await signIn.sso(options);
+      if (clerkError) setError(messageFor(clerkError));
     } catch (reason) { setError(messageFor(reason)); }
     finally { setSubmitting(false); }
   };
@@ -138,12 +154,16 @@ function Auth({ mode, onBack, onAuthenticated, onModeChange }: { mode: AuthMode;
   const verifying = stage === "verify";
   const title = mode === "signup" ? "Start your first world." : "Walk back in.";
 
-  return <main className="auth-page"><div className="auth-backdrop" /><div className="auth-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></div><form className="auth-card" onSubmit={verifying ? verifyCode : submitCredentials}><div className="auth-tabs"><button className={mode === "login" ? "active" : ""} type="button" onClick={() => switchMode("login")}>Log in</button><button className={mode === "signup" ? "active" : ""} type="button" onClick={() => switchMode("signup")}>Sign up</button></div><h1>{verifying ? "Check your email." : title}</h1>{verifying ? <><p className="auth-note">We sent a verification code to <strong>{email}</strong>.</p><label><span>VERIFICATION CODE</span><input autoComplete="one-time-code" inputMode="numeric" value={code} onChange={(event) => setCode(event.target.value)} required /></label></> : <><label><span>EMAIL</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label><span>PASSWORD</span><input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} /></label></>}{error && <p className="auth-error" role="alert">{error}</p>}<button className="button full" type="submit" disabled={submitting}>{submitting ? "Please wait…" : verifying ? "Verify email" : mode === "signup" ? "Create account" : "Continue"}</button>{!verifying && <><div className="or">OR</div><p className="fine-print">{mode === "login" ? <>No account? <button type="button" onClick={() => switchMode("signup")}>Sign up</button></> : <>Already have an account? <button type="button" onClick={() => switchMode("login")}>Log in</button></>}</p></>}</form><p className="auth-quote">Every surface you walk past is marked by whether the camera saw it.</p></main>;
+  return <main className="auth-page"><div className="auth-backdrop" /><div className="auth-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></div><form className="auth-card" onSubmit={verifying ? verifyCode : submitCredentials}><div className="auth-tabs"><button className={mode === "login" ? "active" : ""} type="button" onClick={() => switchMode("login")}>Log in</button><button className={mode === "signup" ? "active" : ""} type="button" onClick={() => switchMode("signup")}>Sign up</button></div><h1>{verifying ? "Check your email." : title}</h1>{verifying ? <><p className="auth-note">We sent a verification code to <strong>{email}</strong>.</p><label><span>VERIFICATION CODE</span><input autoComplete="one-time-code" inputMode="numeric" value={code} onChange={(event) => setCode(event.target.value)} required /></label></> : <><label><span>EMAIL</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label><span>PASSWORD</span><input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} /></label></>}{error && <p className="auth-error" role="alert">{error}</p>}<button className="button full" type="submit" disabled={submitting}>{submitting ? "Please wait…" : verifying ? "Verify email" : mode === "signup" ? "Create account" : "Continue"}</button>{!verifying && <><div className="or">OR</div><button className="social" type="button" onClick={continueWithGoogle} disabled={submitting}>Continue with Google</button><p className="fine-print">{mode === "login" ? <>No account? <button type="button" onClick={() => switchMode("signup")}>Sign up</button></> : <>Already have an account? <button type="button" onClick={() => switchMode("login")}>Log in</button></>}</p></>}</form><p className="auth-quote">Every surface you walk past is marked by whether the camera saw it.</p></main>;
 }
 
-function Upload({ onBack, onBrowse, onExplore, onAuth, onLogin, children }: { onBack: () => void; onBrowse: () => void; onExplore: () => void; onAuth: () => void; onLogin: () => void; children: React.ReactNode }) {
+function Upload({ onBack, onBrowse, onFile, onExplore, onAuth, onLogin, children }: { onBack: () => void; onBrowse: () => void; onFile: (file?: File) => void; onExplore: () => void; onAuth: () => void; onLogin: () => void; children: React.ReactNode }) {
   const samples = [{ image: images.mouffetard, label: "PARIS · 1898" }, { image: images.mulberry, label: "NEW YORK · 1906" }, { image: images.montmartre, label: "PARIS · 1900" }];
-  return <main className="page upload-page"><Header signedOut onUpload={onAuth} onLogin={onLogin} /><section className="upload-layout"><div className="upload-copy"><button className="back-link" onClick={onBack}>← Back</button><h1>Try one world,<br /><em>no account.</em></h1><div className="guest-note"><span>GUEST SESSION</span><p>Make one world, keep it for seven days, then decide if you want to save it.</p></div><button className="button ghost" onClick={onAuth}>Create an account instead</button></div><div className="upload-panel"><button className="dropzone" onClick={onBrowse}><span className="upload-mark">✦</span><strong>Drop a photograph</strong><small>JPG · TIFF · PNG — UP TO 80 MB</small><span className="button compact">Browse files</span></button><p className="eyebrow archive-label">OR WALK ONE OF OURS</p><div className="sample-grid">{samples.map((sample) => <button className="sample-card" key={sample.label} onClick={onExplore}><img src={sample.image} alt="" /><span>{sample.label}</span></button>)}</div></div></section><Historian className="upload-historian" color="green" />{children}</main>;
+  const [dragging, setDragging] = useState(false);
+  const beginDrag = (event: React.DragEvent<HTMLButtonElement>) => { event.preventDefault(); setDragging(true); };
+  const endDrag = (event: React.DragEvent<HTMLButtonElement>) => { event.preventDefault(); if (event.currentTarget === event.target) setDragging(false); };
+  const dropFile = (event: React.DragEvent<HTMLButtonElement>) => { event.preventDefault(); setDragging(false); onFile(event.dataTransfer.files[0]); };
+  return <main className="page upload-page"><Header signedOut onUpload={onAuth} onLogin={onLogin} /><section className="upload-layout"><div className="upload-copy"><button className="back-link" onClick={onBack}>← Back</button><h1>Try one world,<br /><em>no account.</em></h1><div className="guest-note"><span>GUEST SESSION</span><p>Make one world, keep it for seven days, then decide if you want to save it.</p></div><button className="button ghost" onClick={onAuth}>Create an account instead</button></div><div className="upload-panel"><button className={`dropzone ${dragging ? "is-dragging" : ""}`} onClick={onBrowse} onDragEnter={beginDrag} onDragOver={beginDrag} onDragLeave={endDrag} onDrop={dropFile}><span className="upload-mark">✦</span><strong>Drop a photograph</strong><small>JPG · TIFF · PNG — UP TO 80 MB</small><span className="button compact">Browse files</span></button><p className="eyebrow archive-label">OR WALK ONE OF OURS</p><div className="sample-grid">{samples.map((sample) => <button className="sample-card" key={sample.label} onClick={onExplore}><img src={sample.image} alt="" /><span>{sample.label}</span></button>)}</div></div></section><Historian className="upload-historian" color="green" />{children}</main>;
 }
 
 function Library({ onNew, onExplore }: { onNew: () => void; onExplore: () => void }) {

@@ -41,6 +41,23 @@ wrong and we should fix it rather than paper over it.
 Already cloned and just need to catch up after someone adds a dependency? Run
 `npm install` again — it is safe to re-run any time.
 
+### Authentication setup
+
+The custom email/password and Google flows need a Clerk publishable key before
+the app can start:
+
+```bash
+cp .env.example .env.local
+```
+
+Set `VITE_CLERK_PUBLISHABLE_KEY` in `.env.local` to the publishable key from
+your Clerk dashboard. Keep Email + Password and Google enabled in Clerk.
+
+This is a client-only Vite app. Never put `CLERK_SECRET_KEY`, or any other
+server secret, in `.env.local` or a `VITE_*` variable. Keep secrets only in a
+server-side environment if a backend is added later. `.env.local` is ignored by
+Git; `.env.example` is the safe, committed template.
+
 ### Run
 
 ```bash
