@@ -216,8 +216,11 @@ export class Viewer {
     // Provenance needs file-order indices and forEachSplat over every Gaussian,
     // so the LoD tree has to stay off when it is enabled.
     const wantsProvenance = this.provenanceEnabled(manifest);
+    // ?splat=splat_500k.spz swaps in another tier from the world folder (quality / FPS comparisons, tests)
+    const override = new URLSearchParams(location.search).get("splat");
+    const splatUrl = override ? manifest.splat.url.replace(/[^/]+$/, override) : manifest.splat.url;
     try {
-      await this.mountSplat(manifest.splat.url, wantsProvenance ? false : manifest.splat.lod ?? true, token);
+      await this.mountSplat(splatUrl, wantsProvenance ? false : manifest.splat.lod ?? true, token);
     } catch (error) {
       if (token === this.loadToken) this.cb.onStatus?.({ kind: "error", message: `splat load failed: ${String(error)}` });
       return;

@@ -63,6 +63,7 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onMode }: 
     };
     viewerRef.current = viewer;
     viewer.start();
+    if (import.meta.env.DEV) (window as unknown as { wtpTransition?: PhotoTransition }).wtpTransition = transition;
 
     const observer = new ResizeObserver(() => viewer.resize());
     observer.observe(canvas);
@@ -139,7 +140,14 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onMode }: 
     <div className="explore-host" ref={hostRef}>
       <div className="explore-stage" ref={stageRef}>
         <canvas ref={canvasRef} className="explore-canvas" />
-        <img ref={overlayRef} className="explore-overlay" src={manifest?.source?.image ?? undefined} alt="" draggable={false} />
+        <img
+          ref={overlayRef}
+          className="explore-overlay"
+          src={manifest?.source?.image ?? undefined}
+          alt=""
+          draggable={false}
+          onLoad={() => transitionRef.current?.refresh()}
+        />
         <div ref={handleRef} className="wipe-handle"><span /></div>
         {mode === "photo" && manifest?.source?.image && (
           <div className="photo-landing">

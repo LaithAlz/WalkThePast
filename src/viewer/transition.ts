@@ -99,13 +99,19 @@ export class PhotoTransition {
     this.render();
   }
 
+  /** Re-apply the current state to the DOM (e.g. after the overlay's src changes). */
+  refresh() {
+    this.render();
+  }
+
   private cancel() {
     if (this.anim !== null) cancelAnimationFrame(this.anim);
     this.anim = null;
   }
 
   private render() {
-    const o = this.mode === "photo" ? 1 : this.peeking ? 1 : this.wipeOn ? 1 : this.opacity;
+    // showPhoto() pins opacity to 1; during enterWorld() it eases to 0 even though mode is still "photo"
+    const o = this.peeking || this.wipeOn ? 1 : this.opacity;
     const show = this.hasPhoto() && o > 0.001;
     this.overlay.style.display = show ? "block" : "none";
     this.overlay.style.opacity = String(o);
