@@ -1,0 +1,430 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { HISTORIAN_INSTRUCTIONS, HISTORIAN_TOOLS, runHistorianTool, sceneMetadata, type HistorianSceneContext } from "./historian";
+import type { HistoricalEntity } from "../historian/entities";
+import { TimedNarrationPlayer } from "./TimedNarrationPlayer";
+import { splitNarrationText } from "./narrationText";
+
+export type VoiceStatus = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "error";
+type ResponseItem = {
+  id?: string; type?: string; name?: string; call_id?: string; arguments?: string;
+  content?: { type?: string; text?: string }[];
+};
+type ServerEvent = {
+  type?: string; response_id?: string; item_id?: string; content_index?: number;
+  delta?: string; text?: string; transcript?: string;
+  error?: { message?: string }; name?: string; call_id?: string; arguments?: string;
+  item?: ResponseItem;
+  response?: { id?: string; status?: string; output?: ResponseItem[]; status_details?: { error?: { message?: string } } };
+};
+type TextPart = { received: string; pending: string; done: boolean };
+
+export function useRealtimeHistorian(context: HistorianSceneContext) {
+  const [status, setStatus] = useState<VoiceStatus>("idle");
+  const [caption, setCaption] = useState("");
+  const [userCaption, setUserCaption] = useState("");
+  const [error, setError] = useState("");
+  const [isMicMuted, setIsMicMuted] = useState(true);
+  const [canToggleMic, setCanToggleMic] = useState(false);
+  const [canReplay, setCanReplay] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isTransportPaused, setIsTransportPaused] = useState(false);
+  const [entities, setEntities] = useState<HistoricalEntity[]>([]);
+  const contextRef = useRef(context);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const channelRef = useRef<RTCDataChannel | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const playerRef = useRef<TimedNarrationPlayer | null>(null);
+  const connectionRef = useRef<AbortController | null>(null);
+  const sessionGenerationRef = useRef(0);
+  const connectingRef = useRef(false);
+  const handledCalls = useRef(new Set<string>());
+  const textPartsRef = useRef(new Map<string, TextPart>());
+  const activeResponseRef = useRef<string | null>(null);
+  const ignoredResponsesRef = useRef(new Set<string>());
+  const responseRequestedRef = useRef(false);
+  const cancelRequestedResponseRef = useRef(false);
+  const toolContinuationRef = useRef(false);
+  const userSpeakingRef = useRef(false);
+  const userMutedRef = useRef(true);
+  const pausedRef = useRef(false);
+  const pauseReasonsRef = useRef(new Set<"transport" | "detour">());
+  useEffect(() => { contextRef.current = context; }, [context]);
+
+  const send = useCallback((event: { type: string; [key: string]: unknown }) => {
+    const channel = channelRef.current;
+    if (channel?.readyState === "open") {
+      if (event.type === "response.create") responseRequestedRef.current = true;
+      channel.send(JSON.stringify(event));
+    }
+  }, []);
+
+  const interruptNarration = useCallback(() => {
+    if (responseRequestedRef.current) cancelRequestedResponseRef.current = true;
+    const responseId = activeResponseRef.current;
+    if (responseId) {
+      ignoredResponsesRef.current.add(responseId);
+      send({ type: "response.cancel", response_id: responseId });
+    }
+    activeResponseRef.current = null;
+    toolContinuationRef.current = false;
+    textPartsRef.current.clear();
+    playerRef.current?.reset();
+    setCanReplay(false);
+    setCaption("");
+  }, [send]);
+
+  const disconnect = useCallback(() => {
+    // Fence setup, channel events, and pending audio requests before releasing resources.
+    sessionGenerationRef.current += 1;
+    connectionRef.current?.abort();
+    connectionRef.current = null;
+    connectingRef.current = false;
+    const player = playerRef.current;
+    playerRef.current = null;
+    player?.dispose();
+    channelRef.current?.close();
+    peerRef.current?.close();
+    streamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
+    channelRef.current = null;
+    peerRef.current = null;
+    streamRef.current = null;
+    handledCalls.current.clear();
+    textPartsRef.current.clear();
+    ignoredResponsesRef.current.clear();
+    activeResponseRef.current = null;
+    responseRequestedRef.current = false;
+    cancelRequestedResponseRef.current = false;
+    toolContinuationRef.current = false;
+    userSpeakingRef.current = false;
+    userMutedRef.current = true;
+    pausedRef.current = false;
+    pauseReasonsRef.current.clear();
+    setStatus("idle");
+    setCaption("");
+    setUserCaption("");
+    setEntities([]);
+    setIsMicMuted(true);
+    setCanToggleMic(false);
+    setCanReplay(false);
+    setIsPaused(false);
+    setIsTransportPaused(false);
+  }, []);
+  useEffect(() => disconnect, [disconnect]);
+
+  const fail = useCallback((message: string) => {
+    disconnect();
+    setError(message);
+    setStatus("error");
+  }, [disconnect]);
+
+  const replayLastSentence = useCallback(() => {
+    if (pausedRef.current || activeResponseRef.current || responseRequestedRef.current || status !== "listening") return;
+    if (playerRef.current?.replayLast()) setCanReplay(false);
+  }, [status]);
+
+  const setMicrophoneMuted = useCallback((nextMuted: boolean) => {
+    if (!streamRef.current || (!nextMuted && pausedRef.current)) return;
+    const tracks = streamRef.current.getAudioTracks().filter((track) => track.readyState === "live");
+    if (!tracks.length) {
+      setIsMicMuted(true);
+      setCanToggleMic(false);
+      setError("No live microphone track is available. Reconnect the historian.");
+      return;
+    }
+    if (!nextMuted) {
+      interruptNarration();
+      setStatus("listening");
+    }
+    userMutedRef.current = nextMuted;
+    tracks.forEach((track) => { track.enabled = !nextMuted && !pausedRef.current; });
+    setIsMicMuted(nextMuted);
+    if (nextMuted) setUserCaption("");
+  }, [interruptNarration]);
+  const toggleMic = useCallback(() => { setMicrophoneMuted(!userMutedRef.current); }, [setMicrophoneMuted]);
+
+  const pause = useCallback((reason: "transport" | "detour" = "transport") => {
+    pauseReasonsRef.current.add(reason);
+    if (reason === "transport") setIsTransportPaused(true);
+    setIsPaused(true);
+    if (pausedRef.current) return;
+    pausedRef.current = true;
+    playerRef.current?.pause();
+    streamRef.current?.getAudioTracks().forEach((track) => { track.enabled = false; });
+  }, []);
+  const resume = useCallback((reason: "transport" | "detour" = "transport") => {
+    pauseReasonsRef.current.delete(reason);
+    if (reason === "transport") setIsTransportPaused(false);
+    if (pauseReasonsRef.current.size) return;
+    setIsPaused(false);
+    if (!pausedRef.current) return;
+    pausedRef.current = false;
+    playerRef.current?.resume();
+    streamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !userMutedRef.current; });
+  }, []);
+  const togglePlayback = useCallback(() => {
+    if (pauseReasonsRef.current.has("transport")) resume("transport");
+    else pause("transport");
+  }, [pause, resume]);
+
+  const answerTool = useCallback((event: ServerEvent) => {
+    const call = event.item ?? event;
+    const callId = call.call_id;
+    if (!callId || handledCalls.current.has(callId)) return;
+    handledCalls.current.add(callId);
+    let args: Record<string, unknown> = {};
+    try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
+    if (call.name === "linkHistoricalEntity") {
+      const linked = historicalEntityFromTool(args);
+      if (linked) setEntities((current) => [...current.filter((item) => item.label.toLocaleLowerCase() !== linked.label.toLocaleLowerCase()), linked]);
+    }
+    const output = runHistorianTool(call.name || "", args, contextRef.current);
+    send({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) } });
+    // Parallel tool calls cause one continuation after the originating response ends.
+    toolContinuationRef.current = true;
+  }, [send]);
+
+  const queueText = useCallback((event: ServerEvent, final: boolean) => {
+    const key = (event.item_id ?? event.response_id) + ":" + (event.content_index ?? 0);
+    const part = textPartsRef.current.get(key) ?? { received: "", pending: "", done: false };
+    if (part.done) return;
+    if (final && event.text !== undefined && !event.text.startsWith(part.received)) {
+      throw new Error("The historian text changed while speech was being prepared. Please reconnect.");
+    }
+    const delta = final ? event.text?.slice(part.received.length) ?? "" : event.delta ?? "";
+    part.received += delta;
+    const { clips, remainder } = splitNarrationText(part.pending + delta, final);
+    part.pending = remainder;
+    part.done = final;
+    textPartsRef.current.set(key, part);
+    for (const clip of clips) playerRef.current?.enqueue(clip);
+  }, []);
+
+  const handleEvent = useCallback((event: ServerEvent) => {
+    const responseId = event.response_id ?? event.response?.id;
+    if (responseId && ignoredResponsesRef.current.has(responseId)) return;
+    if (event.type?.startsWith("response.") && event.type !== "response.created" && responseId !== activeResponseRef.current) return;
+    switch (event.type) {
+      case "input_audio_buffer.speech_started":
+        if (pausedRef.current) break;
+        userSpeakingRef.current = true;
+        interruptNarration();
+        setStatus("listening");
+        setUserCaption("Listening…");
+        break;
+      case "input_audio_buffer.speech_stopped":
+        userSpeakingRef.current = false;
+        if (!pausedRef.current) setStatus("thinking");
+        break;
+      case "conversation.item.input_audio_transcription.delta":
+        setUserCaption((current) => (current === "Listening…" ? "" : current) + (event.delta || ""));
+        break;
+      case "conversation.item.input_audio_transcription.completed":
+        setUserCaption(event.transcript || "");
+        break;
+      case "response.created":
+        if (!responseId) break;
+        responseRequestedRef.current = false;
+        if (userSpeakingRef.current || cancelRequestedResponseRef.current) {
+          cancelRequestedResponseRef.current = false;
+          ignoredResponsesRef.current.add(responseId);
+          send({ type: "response.cancel", response_id: responseId });
+          break;
+        }
+        activeResponseRef.current = responseId;
+        textPartsRef.current.clear();
+        setCanReplay(false);
+        if (playerRef.current?.state !== "playing") setStatus("thinking");
+        break;
+      case "response.output_text.delta":
+        queueText(event, false);
+        break;
+      case "response.output_text.done":
+        queueText(event, true);
+        break;
+      case "response.function_call_arguments.done":
+        answerTool(event);
+        break;
+      case "response.done": {
+        activeResponseRef.current = null;
+        if (event.response?.status === "failed") {
+          fail(event.response.status_details?.error?.message || "The historian could not finish its response.");
+          break;
+        }
+        if (event.response?.status === "cancelled" || event.response?.status === "incomplete") {
+          interruptNarration();
+          setStatus("listening");
+          break;
+        }
+        for (const item of event.response?.output ?? []) {
+          if (item.type === "function_call") answerTool({ item });
+          item.content?.forEach((part, index) => {
+            if (part.type === "output_text" || part.type === "text") queueText({ response_id: responseId, item_id: item.id, content_index: index, text: part.text }, true);
+          });
+        }
+        if (toolContinuationRef.current) {
+          toolContinuationRef.current = false;
+          send({ type: "response.create", response: { output_modalities: ["text"] } });
+        } else {
+          // Network generation completion is independent of local playback completion.
+          playerRef.current?.finish();
+          if (playerRef.current?.state === "idle") setStatus("listening");
+        }
+        break;
+      }
+      case "error":
+        fail(event.error?.message || "Realtime voice error");
+        break;
+    }
+  }, [answerTool, fail, interruptNarration, queueText, send]);
+
+  const connect = useCallback(async () => {
+    if (connectingRef.current || channelRef.current?.readyState === "open") return;
+    const pauseReasons = new Set(pauseReasonsRef.current);
+    disconnect();
+    pauseReasonsRef.current = pauseReasons;
+    pausedRef.current = pauseReasons.size > 0;
+    setIsPaused(pausedRef.current);
+    setIsTransportPaused(pauseReasons.has("transport"));
+    connectingRef.current = true;
+    const generation = sessionGenerationRef.current;
+    const controller = new AbortController();
+    connectionRef.current = controller;
+    const current = () => generation === sessionGenerationRef.current && !controller.signal.aborted;
+    setStatus("connecting");
+    setError("");
+    try {
+      const player = new TimedNarrationPlayer({
+        load: async (text, signal) => {
+          const response = await fetch("/api/realtime/narration", {
+            method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+          });
+          if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "Could not prepare synchronized speech.");
+          return response.json();
+        },
+        onCaption: (text) => { if (current()) setCaption(text); },
+        onState: (state) => {
+          if (current() && state !== "idle") setStatus(state === "playing" ? "speaking" : "thinking");
+        },
+        onReplayAvailable: (available) => { if (current()) setCanReplay(available); },
+        onComplete: () => {
+          if (!current() || activeResponseRef.current || responseRequestedRef.current || toolContinuationRef.current) return;
+          setStatus("listening");
+          setCanReplay(player.canReplay);
+        },
+        onError: (reason) => { if (current()) fail(reason.message); },
+      });
+      playerRef.current = player;
+      if (pausedRef.current) player.pause();
+      const [tokenResponse, imageResponse] = await Promise.all([
+        fetch("/api/realtime/session", { method: "POST", signal: controller.signal }),
+        fetch(contextRef.current.world.sourceImage, { signal: controller.signal }),
+      ]);
+      if (!current()) return;
+      if (!tokenResponse.ok) throw new Error((await tokenResponse.json().catch(() => null))?.error || "Could not create a voice session");
+      const tokenData = await tokenResponse.json() as { value?: string; client_secret?: { value?: string } };
+      const ephemeralKey = tokenData.value ?? tokenData.client_secret?.value;
+      if (!ephemeralKey) throw new Error("The voice session did not return a client credential");
+      if (!imageResponse.ok) throw new Error("Could not load the source image");
+      const imageDataUrl = await blobToDataUrl(await imageResponse.blob());
+      if (!current()) return;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!current()) { stream.getTracks().forEach((track) => track.stop()); return; }
+      streamRef.current = stream;
+      setCanToggleMic(true);
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+        track.onended = () => { if (current()) fail("Microphone access ended. Reconnect the historian to speak again."); };
+      });
+      const peer = new RTCPeerConnection();
+      peerRef.current = peer;
+      // WebRTC carries the microphone. Never autoplay independent remote audio.
+      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+      peer.onconnectionstatechange = () => {
+        if (current() && (peer.connectionState === "failed" || peer.connectionState === "disconnected")) fail("Voice connection lost. Tap to reconnect.");
+      };
+      const channel = peer.createDataChannel("oai-events");
+      channelRef.current = channel;
+      channel.onmessage = (message) => {
+        if (!current()) return;
+        try { handleEvent(JSON.parse(message.data) as ServerEvent); }
+        catch (reason) { fail(reason instanceof Error ? reason.message : "Invalid historian event."); }
+      };
+      channel.onerror = () => { if (current()) fail("Voice event channel failed."); };
+      channel.onclose = () => { if (current()) fail("Voice connection closed. Tap to reconnect."); };
+      channel.onopen = () => {
+        if (!current()) return;
+        connectingRef.current = false;
+        setStatus("thinking");
+        send({
+          type: "session.update",
+          session: { type: "realtime", output_modalities: ["text"], instructions: HISTORIAN_INSTRUCTIONS + "\nYour text will be spoken aloud. Return plain spoken prose without Markdown formatting.", tools: HISTORIAN_TOOLS, tool_choice: "auto" },
+        });
+        send({
+          type: "conversation.item.create",
+          item: {
+            type: "message", role: "user",
+            content: [
+              { type: "input_image", image_url: imageDataUrl },
+              { type: "input_text", text: "Here is the source image and metadata for the world I just entered: " + sceneMetadata(contextRef.current) },
+            ],
+          },
+        });
+        send({
+          type: "response.create",
+          response: {
+            output_modalities: ["text"],
+            instructions: "Give the historical opening now. Lead with established facts about the Giza Plateau and its Old Kingdom pyramid complexes, then invite the visitor to ask a question. Do not mention the image, reconstruction, technology, provenance, or source limitations in this opening.",
+          },
+        });
+      };
+      const offer = await peer.createOffer();
+      if (!current()) return;
+      await peer.setLocalDescription(offer);
+      const answerResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
+        method: "POST", body: offer.sdp, signal: controller.signal,
+        headers: { Authorization: "Bearer " + ephemeralKey, "Content-Type": "application/sdp" },
+      });
+      const answerBody = await answerResponse.text();
+      if (!current()) return;
+      if (!answerResponse.ok) {
+        let detail = "";
+        try { detail = (JSON.parse(answerBody) as { error?: { message?: string } }).error?.message ?? ""; } catch { /* Use status below. */ }
+        throw new Error(detail || "WebRTC setup failed (" + answerResponse.status + ")");
+      }
+      await peer.setRemoteDescription({ type: "answer", sdp: answerBody });
+    } catch (reason) {
+      if (current()) fail(reason instanceof Error ? reason.message : "Unable to start voice");
+    }
+  }, [disconnect, fail, handleEvent, send]);
+
+  return { status, caption, userCaption, error, entities, isMicMuted, canToggleMic, canReplay, isPaused, isTransportPaused, replayLastSentence, setMicrophoneMuted, toggleMic, togglePlayback, connect, disconnect, pause, resume };
+}
+
+function historicalEntityFromTool(args: Record<string, unknown>): HistoricalEntity | null {
+  const label = typeof args.label === "string" ? args.label.trim() : "";
+  const summary = typeof args.summary === "string" ? args.summary.trim() : "";
+  const kind = args.kind;
+  if (!label || !summary || (kind !== "place" && kind !== "site" && kind !== "person" && kind !== "period")) return null;
+  let articleUrl: URL;
+  try { articleUrl = new URL(String(args.articleUrl)); } catch { return null; }
+  if (articleUrl.protocol !== "https:" || !/(^|\.)wikipedia\.org$/i.test(articleUrl.hostname)) return null;
+  const longitude = typeof args.longitude === "number" && args.longitude >= -180 && args.longitude <= 180 ? args.longitude : null;
+  const latitude = typeof args.latitude === "number" && args.latitude >= -90 && args.latitude <= 90 ? args.latitude : null;
+  return {
+    id: `agent-${label.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    label,
+    kind,
+    articleUrl: articleUrl.href,
+    summary,
+    coordinates: longitude !== null && latitude !== null ? [longitude, latitude] : undefined,
+  };
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}

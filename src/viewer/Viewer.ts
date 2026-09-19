@@ -31,6 +31,8 @@ export type NavigationStatus = { mode: "loading" | "walking" | "ground-only" | "
 
 export type ViewerCallbacks = {
   onStatus?: (status: ViewerStatus) => void;
+  /** Fired as soon as the manifest is parsed, before the splat streams (drives the photo landing). */
+  onManifest?: (manifest: WorldManifest) => void;
   onFps?: (fps: number) => void;
   onCounts?: (counts: EvidenceCounts) => void;
   onVerdict?: (verdict: Verdict | null) => void;
@@ -117,7 +119,8 @@ export class Viewer {
 
     this.onKeyDown = (e) => {
       if (isTyping(e) || e.repeat) return;
-      if (e.code === "KeyR") this.resetToPhotographer();
+      // frameHandle: ignore keys while the loop is stopped for the photo landing.
+      if (this.frameHandle && e.code === "KeyR") this.resetToPhotographer();
       if (import.meta.env.DEV && e.altKey && e.code === "KeyF") {
         e.preventDefault();
         this.toggleDevelopmentFly();
@@ -163,6 +166,12 @@ export class Viewer {
   stop() {
     cancelAnimationFrame(this.frameHandle);
     this.frameHandle = 0;
+  }
+
+  /** Freeze the exact current camera view before handing the screen to a non-WebGL experience. */
+  captureSnapshot(): string {
+    this.renderer.render(this.scene, this.camera);
+    return this.canvas.toDataURL("image/jpeg", 0.9);
   }
 
   resize() {
@@ -215,6 +224,7 @@ export class Viewer {
     }
     if (token !== this.loadToken || this.disposed) return;
     this.manifest = manifest;
+    this.cb.onManifest?.(manifest);
 
     const scale = manifest.metric?.scaleFactor ?? 1;
     const ground = manifest.metric?.groundPlaneOffset ?? 0;
@@ -241,8 +251,11 @@ export class Viewer {
 
     // The render mesh keeps its LoD tree, so walking around is full quality.
     const wantsProvenance = this.provenanceEnabled(manifest);
+    // ?splat=splat_500k.spz swaps in another tier from the world folder (quality / FPS comparisons, tests)
+    const override = new URLSearchParams(location.search).get("splat");
+    const splatUrl = override ? manifest.splat.url.replace(/[^/]+$/, override) : manifest.splat.url;
     try {
-      await this.mountSplat(manifest.splat.url, manifest.splat.lod ?? true, token);
+      await this.mountSplat(splatUrl, manifest.splat.lod ?? true, token);
     } catch (error) {
       if (token === this.loadToken) this.cb.onStatus?.({ kind: "error", message: `splat load failed: ${String(error)}` });
       return;
@@ -282,8 +295,24 @@ export class Viewer {
     this.evidence.setMode(on && !!this.provenance);
   }
 
-  /** Reset to a safe standing position near the source view, without flying through walls. */
-  resetToPhotographer() {
+  /** While the photograph is showing, the world should not respond to input. */
+  setInteractive(on: boolean) {
+    this.controls.setEnabled(on);
+  }
+
+  /** The source photo's aspect (width / height), once loaded; null without a photo. */
+  get photoAspect(): number | null {
+    return this.sourceAspect;
+  }
+
+  /** Reset to a safe standing position near the source view.
+   *
+   * Always instant. `animate` is accepted so the transition's existing call sites
+   * keep working, but easing the camera across the room would fly it straight
+   * through the collision mesh now that worlds have one — the walking controller
+   * deliberately has no path that moves the capsule through geometry.
+   */
+  resetToPhotographer(_animate = false) {
     if (!this.manifest) return;
     const pose = this.photographerPose();
     this.photographerPos.fromArray(pose.position);

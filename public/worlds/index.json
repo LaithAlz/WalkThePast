@@ -1,14 +1,26 @@
 [
   {
     "id": "marble-versailles-hall-of-mirrors",
-    "name": "Marble \u00b7 Hall of Mirrors, Versailles"
+    "name": "Hall of Mirrors, Versailles (walkable, collider)"
+  },
+  {
+    "id": "marble-paris-cropped",
+    "name": "Rue Cardinale, Paris, 1922 (hero)"
   },
   {
     "id": "marble-giza",
-    "name": "Giza (hero)"
+    "name": "Giza plateau (illustration)"
+  },
+  {
+    "id": "marble-paris",
+    "name": "Rue Cardinale, uncropped scan (framed-picture failure case)"
+  },
+  {
+    "id": "marble-giza-draft",
+    "name": "Giza (draft model)"
   },
   {
     "id": "marble-sample-lane",
-    "name": "Marble sample \u00b7 cobblestone lane (500k, CDN)"
+    "name": "Marble sample · cobblestone lane (CDN)"
   }
 ]

@@ -178,6 +178,13 @@ export class FirstPersonControls {
     this.motor?.stop();
   }
 
+  /** Hand input to, or take it from, the world. The photo landing and the entity
+   * portal both put something else on screen and must not be steered through. */
+  setEnabled(enabled: boolean) {
+    this.enabled = enabled;
+    if (!enabled) this.clearInput();
+  }
+
   setPaused(paused: boolean) {
     this.paused = paused;
     if (paused) this.clearInput();

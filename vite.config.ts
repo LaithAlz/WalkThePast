@@ -1,7 +1,71 @@
-import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv, type Connect, type Plugin } from "vite";
+import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
+import { createNarrationHandler } from "./server/narration.ts";
 
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [react()],
-})
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const hasClerk = !!env.VITE_CLERK_PUBLISHABLE_KEY;
+  const openAIKey = env.OPENAI_API_KEY;
+  const alias: Record<string, string> = hasClerk
+    ? {}
+    : { "@clerk/react": fileURLToPath(new URL("./src/shims/clerk-stub.tsx", import.meta.url)) };
+  if (!hasClerk) console.warn("[walk-the-past] VITE_CLERK_PUBLISHABLE_KEY not set: auth is stubbed, the app runs signed-out.");
+  return {
+    plugins: [react(), realtimeSessionEndpoint(openAIKey, env.OPENAI_REALTIME_MODEL)],
+    resolve: {
+      alias,
+    },
+    // Spark ships a Wasm blob + worker inline; keep it out of the dep optimizer.
+    optimizeDeps: { exclude: ["@sparkjsdev/spark"] },
+  };
+});
+
+function realtimeSessionEndpoint(apiKey: string | undefined, configuredModel: string | undefined): Plugin {
+  const model = configuredModel || "gpt-realtime-2.1";
+  const install = (middlewares: Connect.Server) => {
+    middlewares.use("/api/realtime/narration", createNarrationHandler({ apiKey }));
+    middlewares.use("/api/realtime/session", async (req, res, next) => {
+      if (req.method !== "POST") return next();
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "no-store");
+      if (!apiKey) {
+        res.statusCode = 503;
+        res.end(JSON.stringify({ error: "OPENAI_API_KEY is not configured on the server" }));
+        return;
+      }
+      try {
+        const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session: {
+              type: "realtime",
+              model,
+              output_modalities: ["text"],
+              audio: {
+                input: {
+                  transcription: { model: "gpt-4o-mini-transcribe" },
+                  turn_detection: { type: "server_vad", create_response: true, interrupt_response: true },
+                },
+                output: { voice: "marin" },
+              },
+            },
+          }),
+        });
+        const body = await response.text();
+        res.statusCode = response.status;
+        res.end(response.ok ? body : JSON.stringify({ error: "OpenAI session creation failed", status: response.status }));
+      } catch (error) {
+        console.error("[realtime] session creation failed", error instanceof Error ? error.message : error);
+        res.statusCode = 502;
+        res.end(JSON.stringify({ error: "Unable to reach OpenAI" }));
+      }
+    });
+  };
+  return {
+    name: "walk-the-past-realtime-session",
+    configureServer: (server) => install(server.middlewares),
+    configurePreviewServer: (server) => install(server.middlewares),
+  };
+}

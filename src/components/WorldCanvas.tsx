@@ -1,18 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { Viewer, type EvidenceCounts, type Verdict, type ViewerStatus, type NavigationStatus } from "../viewer/Viewer";
+import { PhotoTransition, type Mode } from "../viewer/transition";
+import type { WorldManifest } from "../viewer/world";
 
 type Props = {
   worldId: string;
   evidence: boolean;
+  autoEnter?: boolean;
   onCounts?: (counts: EvidenceCounts) => void;
   onVerdict?: (verdict: Verdict | null) => void;
+  onMode?: (mode: Mode) => void;
+  onReady?: (ready: boolean) => void;
+  suspended?: boolean;
+  onSnapshot?: (dataUrl: string) => void;
   onExit?: () => void;
 };
 
-export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onExit }: Props) {
+export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit }: Props) {
+  const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLImageElement>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
+  const transitionRef = useRef<PhotoTransition | null>(null);
   const [status, setStatus] = useState<ViewerStatus>({ kind: "idle" });
+  const [manifest, setManifest] = useState<WorldManifest | null>(null);
+  const [mode, setMode] = useState<Mode>("photo");
   const [navigation, setNavigation] = useState<NavigationStatus>({ mode: "loading", message: "Preparing walking…" });
   const [pauseMenu, setPauseMenu] = useState(false);
   // Correct look speed depends on the user's mouse, so it is theirs to set and keep.
@@ -40,8 +53,6 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onExit }: 
     };
   }, [worldId, navigation.mode]);
 
-  // Callbacks change identity every render; keep them in a ref so the viewer is
-  // built once rather than torn down and rebuilt on each parent render.
   const resume = () => {
     setPauseMenu(false);
     viewerRef.current?.setPaused(false);
@@ -51,17 +62,29 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onExit }: 
     resume();
   };
 
-  const sinks = useRef({ onCounts, onVerdict, resume });
+  // Callbacks change identity every render; keep them in a ref so the viewer is
+  // built once rather than torn down and rebuilt on each parent render.
+  const sinks = useRef({ onCounts, onVerdict, onMode, resume });
   useEffect(() => {
-    sinks.current = { onCounts, onVerdict, resume };
+    sinks.current = { onCounts, onVerdict, onMode, resume };
   });
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const overlay = overlayRef.current;
+    const handle = handleRef.current;
+    const stage = stageRef.current;
+    if (!canvas || !overlay || !handle || !stage) return;
 
+    const transition = new PhotoTransition(overlay, handle, stage);
+    transitionRef.current = transition;
     const viewer = new Viewer(canvas, {
       onStatus: setStatus,
+      onManifest: (m) => {
+        setManifest(m);
+        transition.showPhoto();
+        viewer.setInteractive(false);
+      },
       onNavigation: (next) => {
         if (next.mode === "loading") setPauseMenu(false);
         setNavigation(next);
@@ -74,11 +97,17 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onExit }: 
       onCounts: (counts) => sinks.current.onCounts?.(counts),
       onVerdict: (verdict) => sinks.current.onVerdict?.(verdict),
     });
+    transition.onMode = (m) => {
+      setMode(m);
+      viewer.setInteractive(m === "world");
+      sinks.current.onMode?.(m);
+    };
     viewerRef.current = viewer;
     // Read back rather than close over the state: this effect runs once, and it
     // runs before the effect that pushes later changes.
     viewer.setLookSensitivity(readSensitivity());
     viewer.start();
+    if (import.meta.env.DEV) (window as unknown as { wtpTransition?: PhotoTransition }).wtpTransition = transition;
 
     const observer = new ResizeObserver(() => viewer.resize());
     observer.observe(canvas);
@@ -87,6 +116,7 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onExit }: 
       observer.disconnect();
       viewer.dispose();
       viewerRef.current = null;
+      transitionRef.current = null;
     };
   }, []);
 
@@ -95,23 +125,103 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onExit }: 
   }, [worldId]);
 
   useEffect(() => {
+    onReady?.(status.kind === "ready");
+  }, [status, onReady]);
+
+  useEffect(() => {
     viewerRef.current?.setEvidenceMode(evidence);
   }, [evidence]);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    if (suspended) {
+      onSnapshot?.(viewer.captureSnapshot());
+      viewer.setInteractive(false);
+      viewer.stop();
+    } else {
+      viewer.start();
+      viewer.setInteractive(mode === "world");
+    }
+  }, [suspended, onSnapshot, mode]);
+
+  const ready = status.kind === "ready";
+  const enter = async () => {
+    const t = transitionRef.current;
+    if (!t || t.mode !== "photo" || status.kind !== "ready") return;
+    viewerRef.current?.resetToPhotographer(false);
+    await t.enterWorld();
+  };
+
+  useEffect(() => {
+    if (status.kind !== "ready") return;
+    if (autoEnter || !manifest?.source?.image) void enter(); // preview routes skip the photo landing
+  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      const t = transitionRef.current;
+      if (!t) return;
+      if ((e.code === "Enter" || e.code === "Space") && t.mode === "photo") { e.preventDefault(); void enter(); }
+      if (e.code === "Tab") { e.preventDefault(); t.peek(true); }
+      if (e.code === "KeyV") t.toggleWipe();
+      if (e.code === "KeyL") viewerRef.current?.savePose();
+    };
+    const up = (e: KeyboardEvent) => { if (e.code === "Tab") transitionRef.current?.peek(false); };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }); // re-bound each render so `enter` sees the current status
 
   const updateTouch = (key: string, pressed: boolean) => {
     if (pressed) touchKeys.current.add(key); else touchKeys.current.delete(key);
     const keys = touchKeys.current;
     viewerRef.current?.setTouchMove(Number(keys.has("right")) - Number(keys.has("left")), Number(keys.has("back")) - Number(keys.has("forward")));
   };
-  const canWalk = navigation.mode === "walking" || navigation.mode === "ground-only";
+  // Walking chrome belongs to the world, so it stays out of the way until the
+  // photograph has been stepped through.
+  const inWorld = mode === "world";
+  const canWalk = inWorld && (navigation.mode === "walking" || navigation.mode === "ground-only");
+  const credit = manifest?.credit ?? {};
+  const meta = [credit.photographer, credit.year, credit.place].filter(Boolean).join(" · ");
 
   return (
-    <>
-      <canvas ref={canvasRef} className="explore-canvas" tabIndex={0} aria-label="3D world. Move the pointer or scroll to turn. Press Escape for the menu. Use W A S D or arrow keys to walk, Shift to run, R to reset." />
-      <div className="walking-toolbar">
+    <div className="explore-host">
+      <div className="explore-stage" ref={stageRef}>
+        <canvas
+          ref={canvasRef}
+          className="explore-canvas"
+          tabIndex={0}
+          aria-label="3D world. Move the pointer or scroll to turn. Press Escape for the menu. Use W A S D or arrow keys to walk, Shift to run, R to reset."
+        />
+        <img
+          ref={overlayRef}
+          className="explore-overlay"
+          src={manifest?.source?.image ?? undefined}
+          alt=""
+          draggable={false}
+          onLoad={() => transitionRef.current?.refresh()}
+        />
+        <div ref={handleRef} className="wipe-handle"><span /></div>
+        {mode === "photo" && manifest?.source?.image && (
+          <div className="photo-landing">
+            <div className="photo-card">
+              <p className="eyebrow">THE PHOTOGRAPH</p>
+              <h2>{credit.title ?? manifest.name}</h2>
+              {meta && <p className="photo-meta">{meta}</p>}
+              {credit.licence && <p className="photo-licence">{credit.licence}</p>}
+              <button className="button" disabled={!ready} onClick={() => void enter()}>
+                {ready ? "Walk into the photograph" : describe(status)}
+              </button>
+              <p className="photo-hint">ENTER ↵ · then move or scroll to turn, WASD to walk · hold TAB to see the photograph · V to wipe</p>
+            </div>
+          </div>
+        )}
+      </div>
+      {inWorld && <div className="walking-toolbar">
         <span role="status" className={`walking-status ${navigation.mode}`}>{navigation.message}</span>
         <button disabled={!canWalk} onClick={() => viewerRef.current?.resetToPhotographer()}>Reset position</button>
-      </div>
+      </div>}
       {canWalk && <div className="walking-touch" aria-label="Walking controls">
         {([['forward', '↑'], ['left', '←'], ['back', '↓'], ['right', '→']] as const).map(([key, label]) => <button
           key={key} className={`walk-${key}`} aria-label={`Walk ${key}`}
@@ -142,8 +252,8 @@ export function WorldCanvas({ worldId, evidence, onCounts, onVerdict, onExit }: 
           <small>ESC MENU · WASD WALK · SHIFT RUN</small>
         </section>
       </div>}
-      {status.kind !== "ready" && <div role="status" className="explore-loading">{describe(status)}</div>}
-    </>
+      {status.kind !== "ready" && (mode !== "photo" || status.kind === "error") && <div role="status" className={`explore-loading${status.kind === "error" ? " is-error" : ""}`}>{describe(status)}</div>}
+    </div>
   );
 }
 

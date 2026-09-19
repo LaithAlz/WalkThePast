@@ -162,6 +162,27 @@ everything inside the render loop.
 - The production bundle is ~3.2 MB (Three.js plus Spark's wasm). Fine for a
   localhost demo; worth code-splitting only if we deploy.
 
+## Voice narration
+
+The voice historian uses WebRTC for microphone input and the configured Realtime
+model for text and tool calls. Each sentence is prepared through
+`POST /api/realtime/narration`: `gpt-4o-mini-tts` produces the audio with the `marin`
+voice, and `whisper-1` supplies word timestamps for that same audio. Captions read
+the finite audio element's `currentTime`; no words-per-minute timer is used.
+Pause holds both the audio position and captions, and replay uses the cached clip.
+
+This intentionally adds buffering before speech and a speech/transcription API
+request per sentence. Keep `OPENAI_API_KEY` server-side in `.env.local`; the key
+must have access to those models as well as the configured Realtime model. Both
+API routes run in Vite dev and preview; a static deployment needs equivalent
+server routes. Word boundaries are transcription estimates, so this removes
+network-induced drift without promising phoneme-perfect alignment. If spoken
+words cannot be matched to the original text, playback stops with a retry message
+instead of falling back to invented timestamps. See the official
+[speech generation](https://developers.openai.com/api/docs/guides/text-to-speech)
+and [word timestamp](https://developers.openai.com/api/docs/guides/speech-to-text#timestamps)
+documentation. Run `npm test` for playback, network, interruption, and timing checks.
+
 ## Stack
 
 Vite · React 19 · TypeScript · Three.js `0.186` · Spark `2.2` (`@sparkjsdev/spark`)
