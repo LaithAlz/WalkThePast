@@ -25,25 +25,34 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
   // Generated worlds carry the user's note, the world guide the scene was built from, and what the source was
   // in their manifest; the historian must speak about that, never about a stock example.
   const [manifestFacts, setManifestFacts] = useState<{ description?: string; guide?: string; sourceKind?: string }>({});
+  // The session is not opened until these facts are in hand: the opening is written from
+  // the metadata sent at connection time, so connecting first would welcome the visitor
+  // to a world the historian knows nothing about.
+  const [factsReady, setFactsReady] = useState(false);
   useEffect(() => {
-    if (!world.worldId) { setManifestFacts({}); return; }
+    if (!world.worldId) { setManifestFacts({}); setFactsReady(true); return; }
     let stop = false;
+    setFactsReady(false);
     fetch(worlds(`/worlds/${world.worldId}/world.json`), { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((m: { marble?: { prompt?: string | null; description?: string | null; painted?: boolean }; credit?: { photographer?: string } } | null) => {
         if (stop || !m) return;
         setManifestFacts({ description: m.marble?.description ?? undefined, guide: m.marble?.prompt ?? undefined, sourceKind: m.marble?.painted ? "photograph painted from the description" : m.credit?.photographer ?? undefined });
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => { if (!stop) setFactsReady(true); });
     return () => { stop = true; };
   }, [world.worldId]);
+  // A generated world's card carries interface labels ("YOUR PHOTOGRAPH", "GENERATED WORLD")
+  // where a sample world names its place. Those must never reach the historian as facts.
+  const uiLabel = /^(your photograph|generated world|building|failed)$/i.test(world.place.trim());
   const voice = useRealtimeHistorian({
     world: {
       id: world.worldId ?? "unknown",
       title: world.title,
-      place: world.place,
+      place: uiLabel ? "" : world.place,
       date: world.date,
-      description: manifestFacts.description ? `${manifestFacts.description}. ${world.note}` : world.note,
+      description: uiLabel ? manifestFacts.description ?? "" : manifestFacts.description ? `${manifestFacts.description}. ${world.note}` : world.note,
       sourceImage: world.image,
       guide: manifestFacts.guide,
       sourceKind: manifestFacts.sourceKind,
@@ -84,10 +93,13 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
     if (paused) pause("detour");
     else resume("detour");
   }, [paused, pause, resume]);
+  const autoConnected = useRef(false);
   useEffect(() => {
+    if (!factsReady || autoConnected.current) return;
+    autoConnected.current = true;
     const timer = window.setTimeout(() => { void connectRef.current(); }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [factsReady]);
   const keyboardState = useRef({ active, canToggleMic: voice.canToggleMic, isPaused: voice.isPaused });
   useEffect(() => { keyboardState.current = { active, canToggleMic: voice.canToggleMic, isPaused: voice.isPaused }; });
   useEffect(() => {

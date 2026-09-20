@@ -405,7 +405,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       openingPendingRef.current = false;
       if (!/^\s*welcome/i.test(part.received)) {
         const world = contextRef.current.world;
-        text = `Welcome to ${world.place || world.title}. ${text.trimStart()}`;
+        text = `Welcome to ${world.title || world.place}. ${text.trimStart()}`;
       }
     }
     const { clips, remainder } = splitNarrationText(text, final);
