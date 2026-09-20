@@ -6,7 +6,7 @@
 
 import type { WalkingOptions } from "./walking";
 // public/worlds/ in dev; the Worker's R2-backed /worlds/ when VITE_API_BASE names one.
-import { WORLDS_BASE as base } from "../lib/backend";
+import { WORLDS_BASE as base, sourceImageVersion } from "../lib/backend";
 
 /** Coordinate convention of the splat file itself. */
 export type Convention =
@@ -107,7 +107,8 @@ export async function loadManifest(id: string): Promise<WorldManifest> {
   m.id ||= id;
   m.name ||= id;
   m.splat.url = resolveAsset(id, m.splat.url);
-  if (m.source?.image) m.source.image = resolveAsset(id, m.source.image);
+  // Same versioned URL the library card asks for, so one cached copy serves both.
+  if (m.source?.image) m.source.image = `${resolveAsset(id, m.source.image)}?v=${sourceImageVersion}`;
   if (m.pano?.url) m.pano.url = resolveAsset(id, m.pano.url);
   if (m.collider?.url) m.collider.url = resolveAsset(id, m.collider.url);
   if (m.provenance?.splatUrl) m.provenance.splatUrl = resolveAsset(id, m.provenance.splatUrl);
