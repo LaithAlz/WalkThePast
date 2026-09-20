@@ -12,7 +12,24 @@ export type WorldIndexEntry = { id: string; name: string; createdAt?: string; im
 export async function listWorlds(): Promise<WorldIndexEntry[]> {
   const r = await fetch(worlds(`/worlds/index.json?t=${Date.now()}`), { cache: "no-store" });
   const list = r.ok ? ((await apiJson(r)) as WorldIndexEntry[]) : [];
-  return list.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  // An entry written before the index named the source file (every painted world on the
+  // old pipeline) is completed from its manifest, which always has.
+  const filled = await Promise.all(list.map(async (w) => (w.image ? w : { ...w, image: await sourceFileOf(w.id) })));
+  return filled.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+}
+
+const sourceFiles = new Map<string, Promise<string>>();
+/** The source file named by a world's manifest; "source.jpg" when it cannot be read. */
+function sourceFileOf(id: string): Promise<string> {
+  let pending = sourceFiles.get(id);
+  if (!pending) {
+    pending = fetch(worlds(`/worlds/${id}/world.json`))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m: { source?: { image?: string } } | null) => m?.source?.image?.replace(/^\.\//, "").split("/").pop() || "source.jpg")
+      .catch(() => "source.jpg");
+    sourceFiles.set(id, pending);
+  }
+  return pending;
 }
 
 /** Every generation the server knows about, newest first (they run in the background). */
