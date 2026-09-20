@@ -1,1 +1,4 @@
-[]
+[
+  { "id": "einstein", "name": "Einstein", "file": "einstein.glb" },
+  { "id": "stephen", "name": "Stephen", "file": "stephen.glb" }
+]
