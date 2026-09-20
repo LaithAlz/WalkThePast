@@ -7,6 +7,7 @@ import { KnowledgePortal } from "./components/KnowledgePortal";
 import { enrichCaption, type HistoricalEntity } from "./historian/entities";
 import type { EvidenceCounts, Verdict } from "./viewer/Viewer";
 import { generateWorld, getCredits, imagineImage, listJobs, listWorlds, MODEL_CREDITS, writeGuide, type Job, type MarbleModel, type WorldImage } from "./lib/api";
+import { api, worlds as worldAsset } from "./lib/backend";
 import { prepPhoto, type PreppedImage } from "./lib/prep";
 
 type Screen = "landing" | "auth" | "upload" | "library" | "samples" | "explore";
@@ -46,8 +47,8 @@ function useJobs(onReady?: () => void): Job[] {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return jobs;
 }
-const buildingWorlds = (jobs: Job[]): SampleWorld[] => jobs.filter((j) => j.status !== "ready").map((j) => ({ title: j.name, place: j.status === "error" ? "FAILED" : "BUILDING", date: j.status === "error" ? "" : `${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, evidence: j.status === "error" ? (j.error ?? "failed").slice(0, 70) : j.stage.toUpperCase(), image: j.hasImage ? `/api/worlds/jobs/${j.id}/image` : images.mouffetard, note: j.status === "error" ? "This generation did not finish." : "Building in the background. You can leave this page.", quote: "", worldId: `job-${j.id}`, building: j.status === "error" ? undefined : j.progress, failed: j.status === "error" }));
-const generatedWorld = (w: { id: string; name: string }): SampleWorld => ({ title: w.name, place: "GENERATED WORLD", date: "", evidence: "LIVE PROVENANCE", image: `/worlds/${w.id}/source.jpg`, note: "Built from a photograph through Marble and classified against it.", quote: "You’re standing where the photographer stood.", worldId: w.id });
+const buildingWorlds = (jobs: Job[]): SampleWorld[] => jobs.filter((j) => j.status !== "ready").map((j) => ({ title: j.name, place: j.status === "error" ? "FAILED" : "BUILDING", date: j.status === "error" ? "" : `${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, evidence: j.status === "error" ? (j.error ?? "failed").slice(0, 70) : j.stage.toUpperCase(), image: j.hasImage ? api(`/api/worlds/jobs/${j.id}/image`) : images.mouffetard, note: j.status === "error" ? "This generation did not finish." : "Building in the background. You can leave this page.", quote: "", worldId: `job-${j.id}`, building: j.status === "error" ? undefined : j.progress, failed: j.status === "error" }));
+const generatedWorld = (w: { id: string; name: string }): SampleWorld => ({ title: w.name, place: "GENERATED WORLD", date: "", evidence: "LIVE PROVENANCE", image: worldAsset(`/worlds/${w.id}/source.jpg`), note: "Built from a photograph through Marble and classified against it.", quote: "You’re standing where the photographer stood.", worldId: w.id });
 
 const images = {
   atget: "/assets/atget-paris.jpg",
@@ -120,7 +121,7 @@ export default function App() {
   // Generation runs in the background on the server: the library shows it building, with a percentage.
   const startGeneration = () => setScreen("library");
   const openGenerated = (worldId: string, name: string) => {
-    setActiveSample({ title: name, place: "YOUR PHOTOGRAPH", date: "", evidence: "LIVE PROVENANCE", image: `/worlds/${worldId}/source.jpg`, note: "Generated from your photograph and classified against it.", quote: "You’re standing where the photographer stood.", worldId });
+    setActiveSample({ title: name, place: "YOUR PHOTOGRAPH", date: "", evidence: "LIVE PROVENANCE", image: worldAsset(`/worlds/${worldId}/source.jpg`), note: "Generated from your photograph and classified against it.", quote: "You’re standing where the photographer stood.", worldId });
     setExploreReturn("library");
     setEvidence(false);
     setScreen("explore", worldId);
@@ -344,8 +345,8 @@ function Library({ onNew, onExplore, onOpen }: { onNew: () => void; onExplore: (
   const load = () => listWorlds().then((list) => setGenerated(list.filter((w) => !w.id.startsWith("marble-sample")))).catch(() => undefined);
   useEffect(() => { void load(); }, []);
   const jobs = useJobs(load);
-  const building: LibraryWorld[] = jobs.filter((j) => j.status !== "ready").map((j) => ({ id: `job-${j.id}`, title: j.name, detail: j.status === "error" ? (j.error ?? "failed").slice(0, 60) : `${j.stage.toUpperCase()} · ${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, image: j.hasImage ? `/api/worlds/jobs/${j.id}/image` : images.mouffetard, building: j.status !== "error", failed: j.status === "error", pct: j.progress }));
-  const ready: LibraryWorld[] = generated.map((w) => ({ id: w.id, title: w.name, detail: "GENERATED WORLD · WALKABLE", image: `/worlds/${w.id}/source.jpg`, open: () => onOpen(w.id, w.name) }));
+  const building: LibraryWorld[] = jobs.filter((j) => j.status !== "ready").map((j) => ({ id: `job-${j.id}`, title: j.name, detail: j.status === "error" ? (j.error ?? "failed").slice(0, 60) : `${j.stage.toUpperCase()} · ${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, image: j.hasImage ? api(`/api/worlds/jobs/${j.id}/image`) : images.mouffetard, building: j.status !== "error", failed: j.status === "error", pct: j.progress }));
+  const ready: LibraryWorld[] = generated.map((w) => ({ id: w.id, title: w.name, detail: "GENERATED WORLD · WALKABLE", image: worldAsset(`/worlds/${w.id}/source.jpg`), open: () => onOpen(w.id, w.name) }));
   const demo: LibraryWorld[] = worlds.map((w) => ({ id: `demo-${w.title}`, title: w.title, detail: w.detail, image: w.image, open: onExplore }));
   const all = [...building, ...ready, ...demo];
   const stillBuilding = building.filter((w) => w.building).length;
