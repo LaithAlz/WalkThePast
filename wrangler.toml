@@ -43,3 +43,6 @@ class_name = "MarbleWorkflow"
 
 [vars]
 OPENAI_REALTIME_MODEL = "gpt-realtime-2.1"
+# The frontend is served by Vercel, so every /api and /worlds call is cross-origin.
+# "*." matches preview deployments, which get a fresh hostname per commit.
+ALLOWED_ORIGINS = "https://walk-the-past.vercel.app,*.vercel.app,http://localhost:5173,http://localhost:4173"

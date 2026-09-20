@@ -13,6 +13,7 @@ import { narrate } from "./narration.ts";
 import { getJob, listJobs, publicJob, putJob } from "./store.ts";
 import type { Env } from "./types.ts";
 import { base64ToBytes } from "./marbleWorkflow.ts";
+import { allowedOrigin, preflight, withCors } from "./cors.ts";
 
 export { MarbleWorkflow } from "./marbleWorkflow.ts";
 
@@ -25,13 +26,17 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+    // The frontend may be served from Vercel, so /api and /worlds are cross-origin.
+    const backend = path.startsWith("/api/") || path.startsWith("/worlds/");
+    const origin = backend ? allowedOrigin(request, env) : null;
+    if (backend && request.method === "OPTIONS") return preflight(request, origin);
     try {
-      if (path.startsWith("/api/")) return await api(request, env, path);
-      if (path === "/worlds/index.json" || path.startsWith("/worlds/")) return await serveWorld(env, path);
+      if (path.startsWith("/api/")) return withCors(await api(request, env, path), origin);
+      if (path.startsWith("/worlds/")) return withCors(await serveWorld(env, path), origin);
       return await env.ASSETS.fetch(request);
     } catch (error) {
       console.error("[worker]", path, error instanceof Error ? error.message : error);
-      return json({ error: error instanceof Error ? error.message : "request failed" }, 500);
+      return withCors(json({ error: error instanceof Error ? error.message : "request failed" }, 500), origin);
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -93,7 +98,9 @@ async function api(request: Request, env: Env, path: string): Promise<Response> 
   if (path === "/api/views/guide" && request.method === "POST") {
     if (!env.OPENAI_API_KEY) return json({ error: "OPENAI_API_KEY is not configured on the server" }, 503);
     const body = (await request.json()) as { image?: { mime: string; dataBase64: string }; description?: string };
-    return json({ text: await worldGuide(env.OPENAI_API_KEY, body.image, body.description) });
+    if (!body.image?.dataBase64 && !body.description?.trim()) return json({ error: "a photograph or a description is required" }, 400);
+    // key is "guide", matching the Vite bridge and what writeGuide() reads
+    return json({ guide: await worldGuide(env.OPENAI_API_KEY, body.image?.dataBase64 ? body.image : undefined, body.description) });
   }
 
   if (path === "/api/views/image" && request.method === "POST") {

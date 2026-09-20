@@ -36,4 +36,6 @@ export interface Env {
   OPENAI_REALTIME_MODEL?: string;
   OPENAI_TEXT_MODEL?: string;
   VIEW_PROVIDER?: string;
+  /** comma-separated CORS allowlist; entries may start with "*." for preview subdomains */
+  ALLOWED_ORIGINS?: string;
 }
