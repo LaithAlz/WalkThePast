@@ -426,7 +426,8 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
     {(!live || (splatReady && (mode === "world" || prepareVoice))) && (
       <div className={`explore-caption ${voice ? "has-voice" : ""} ${mode !== "world" && hiddenLandingWorld !== historianWorld && live ? "is-preparing" : ""}`} aria-hidden={mode !== "world" && hiddenLandingWorld !== historianWorld && live}>
         {voice ? <VoiceHistorian world={world} evidence={evidence} counts={counts} verdict={verdict} hue={hue} onEntity={openEntity} onPresentationReady={prepareVoice ? beginHistorianPresentation : undefined} captureCurrentView={captureCurrentView} paused={!!entity || worldPaused} onQuizActiveChange={setQuizActive} onMood={setGuideMood} /> : <><Historian hue={hue} state={speaking ? "listening" : "idle"} /><blockquote>“<EntityCaption text={caption} onEntity={openEntity} />”</blockquote></>}
-        <p>{[world.place, world.date].filter(Boolean).join(" · ")}</p>
+        {/* a sample world names its place and year here; a generated one only had an interface label */}
+        {!/^(your photograph|generated world)$/i.test(world.place) && <p>{[world.place, world.date].filter(Boolean).join(" · ")}</p>}
       </div>
     )}
     {entity && entityTab === "article" && <EntityPanel entity={entity} onClose={closeEntity} onMap={showMap} />}
