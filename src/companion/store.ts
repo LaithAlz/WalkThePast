@@ -1,3 +1,4 @@
+import { env } from "./env.ts";
 /**
  * Where the guides live between visits.
  *
@@ -97,17 +98,49 @@ function run<T>(stores: string[], mode: IDBTransactionMode, work: (transaction: 
   }));
 }
 
-/** Every guide on this browser, newest first. */
+/**
+ * Built-in guides ship with the site: public/characters/builtin/index.json lists them and each entry's
+ * `file` is a rigged .glb in that folder. They appear for every visitor on every device, ahead of the
+ * guides a browser made for itself, so a fresh browser walks with the team's guide by default.
+ */
+const BUILTIN_PREFIX = "builtin-";
+type BuiltinSummary = GuideSummary & { file: string };
+const builtinBase = () => `${(env.BASE_URL ?? "/").replace(/\/$/, "")}/characters/builtin`;
+let builtinCache: Promise<BuiltinSummary[]> | null = null;
+function listBuiltinGuides(): Promise<BuiltinSummary[]> {
+  if (typeof fetch !== "function") return Promise.resolve([]);
+  builtinCache ??= fetch(`${builtinBase()}/index.json`, { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list: { id: string; name: string; file: string; portrait?: string }[]) => list.map((g) => ({ id: `${BUILTIN_PREFIX}${g.id}`, avatarId: g.id, name: g.name, portrait: g.portrait ? `${builtinBase()}/${g.portrait}` : undefined, createdAt: 0, file: g.file })))
+    .catch(() => []);
+  return builtinCache;
+}
+const isBuiltin = (id: string) => id.startsWith(BUILTIN_PREFIX);
+
+/** Every guide this browser can walk with: the built-in ones first, then its own, newest first. */
 export async function listGuides(): Promise<GuideSummary[]> {
+  const builtin = (await listBuiltinGuides()).map(({ file: _file, ...summary }) => summary);
   try {
     const all = await run<GuideSummary[]>([GUIDES], "readonly", (t) => t.objectStore(GUIDES).getAll());
-    return all.sort((a, b) => b.createdAt - a.createdAt);
+    return [...builtin, ...all.sort((a, b) => b.createdAt - a.createdAt)];
   } catch {
-    return [];
+    return builtin;
   }
 }
 
 export async function loadGuide(id: string): Promise<StoredGuide | null> {
+  if (isBuiltin(id)) {
+    const entry = (await listBuiltinGuides()).find((g) => g.id === id);
+    if (!entry) return null;
+    try {
+      const r = await fetch(`${builtinBase()}/${entry.file}`);
+      if (!r.ok) return null;
+      const { file: _file, ...summary } = entry;
+      return { ...summary, glb: await r.arrayBuffer() };
+    } catch {
+      return null;
+    }
+  }
   try {
     const summary = await run<GuideSummary | undefined>([GUIDES], "readonly", (t) => t.objectStore(GUIDES).get(id));
     if (!summary) return null;
@@ -134,6 +167,7 @@ export async function saveGuide(guide: Omit<StoredGuide, "id" | "createdAt"> & P
 }
 
 export async function deleteGuide(id: string): Promise<void> {
+  if (isBuiltin(id)) return; // shipped with the site; not this browser's to delete
   try {
     await run([MODELS], "readwrite", (t) => t.objectStore(MODELS).delete(id));
     await run([GUIDES], "readwrite", (t) => t.objectStore(GUIDES).delete(id));
