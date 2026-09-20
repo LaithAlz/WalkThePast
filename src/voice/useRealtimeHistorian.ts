@@ -330,7 +330,15 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       } else output = { error: "no_active_quiz_question" };
     } else if (call.name === "linkHistoricalEntity") {
       const linked = historicalEntityFromTool(args);
-      if (linked) setEntities((current) => [...current.filter((item) => item.label.toLocaleLowerCase() !== linked.label.toLocaleLowerCase()), linked]);
+      if (linked) {
+        const upsert = (entity: HistoricalEntity) => setEntities((current) => [...current.filter((item) => item.label.toLocaleLowerCase() !== entity.label.toLocaleLowerCase()), entity]);
+        upsert(linked);
+        // The map tab needs a location. When the model gave none, the article itself
+        // usually carries one, so it is looked up rather than left to a written list.
+        if (!linked.coordinates && (linked.kind === "place" || linked.kind === "site")) {
+          void articleCoordinates(linked.articleUrl).then((coordinates) => { if (coordinates) upsert({ ...linked, coordinates }); });
+        }
+      }
       output = runHistorianTool(call.name || "", args, contextRef.current);
     } else {
       output = runHistorianTool(call.name || "", args, contextRef.current);
@@ -758,6 +766,22 @@ function quizFromTool(id: string, args: Record<string, unknown>): HistorianQuiz 
     || typeof questionNumber !== "number" || !Number.isInteger(questionNumber) || questionNumber < 1
     || typeof totalQuestions !== "number" || !Number.isInteger(totalQuestions) || totalQuestions < questionNumber || totalQuestions > 10) return null;
   return { id, question, options: options as HistorianQuiz["options"], correctOption, explanation, questionNumber, totalQuestions };
+}
+
+/** The coordinates Wikipedia records for an article, from its REST summary; null when it has none. */
+async function articleCoordinates(articleUrl: string): Promise<[number, number] | null> {
+  try {
+    const url = new URL(articleUrl);
+    const title = decodeURIComponent(url.pathname.replace(/^\/wiki\//, ""));
+    if (!title) return null;
+    const r = await fetch(`${url.origin}/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const summary = (await r.json()) as { coordinates?: { lat?: number; lon?: number } };
+    const { lat, lon } = summary.coordinates ?? {};
+    return typeof lat === "number" && typeof lon === "number" ? [lon, lat] : null;
+  } catch {
+    return null;
+  }
 }
 
 function historicalEntityFromTool(args: Record<string, unknown>): HistoricalEntity | null {
