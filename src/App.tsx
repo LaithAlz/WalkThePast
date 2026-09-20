@@ -31,18 +31,29 @@ function useJobs(onReady?: () => void): Job[] {
   const [jobs, setJobs] = useState<Job[]>([]);
   useEffect(() => {
     let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let readyIds: Set<string> | null = null;
     const tick = async () => {
-      const list = await listJobs();
       if (stop) return;
-      setJobs(list);
-      const nowReady = new Set(list.filter((j) => j.status === "ready").map((j) => j.id));
-      if (readyIds && [...nowReady].some((id) => !readyIds!.has(id))) onReady?.();
-      readyIds = nowReady;
-      if (list.some((j) => j.status !== "ready" && j.status !== "error")) setTimeout(tick, 3000);
+      let active = true;
+      try {
+        const list = await listJobs();
+        if (stop) return;
+        setJobs(list);
+        const nowReady = new Set(list.filter((j) => j.status === "ready").map((j) => j.id));
+        if (readyIds && [...nowReady].some((id) => !readyIds!.has(id))) onReady?.();
+        readyIds = nowReady;
+        active = list.some((j) => j.status !== "ready" && j.status !== "error");
+      } catch {
+        // The dev server restarts on every config edit; a failed poll must not end polling for good.
+      }
+      // Fast while something builds, slow otherwise, so a job started elsewhere still shows up.
+      timer = setTimeout(tick, active ? 3000 : 15000);
     };
+    const onVisible = () => { if (document.visibilityState === "visible") { clearTimeout(timer); void tick(); } };
+    document.addEventListener("visibilitychange", onVisible);
     void tick();
-    return () => { stop = true; };
+    return () => { stop = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return jobs;
 }
