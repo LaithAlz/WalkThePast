@@ -131,11 +131,10 @@ test("truncated audio and inconsistent PCM metadata fail before transcription", 
   }
 });
 
-test("upstream failures return useful errors without upstream secrets or audio", async () => {
+test("speech generation failures return useful errors without upstream secrets or audio", async () => {
   for (const reply of [new Response("private upstream diagnostic", { status: 500 })]) {
-    let calls = 0;
     const { res, complete } = request({ text: "Giza" }, {
-      fetchImpl: async () => ++calls === 1 ? new Response(wav()) : reply,
+      fetchImpl: async () => reply,
     });
     await complete;
     assert.equal(res.statusCode, 502);
@@ -157,6 +156,28 @@ test("ASR wording differences fall back to estimated captions instead of discard
   assert.equal(res.body.words[0].start, 0.4);
   assert.equal(res.body.words.at(-1).end, 2.1);
   assert.deepEqual(Buffer.from(res.body.audio, "base64"), wav());
+});
+
+test("timestamp service failures keep valid audio and use duration-based captions", async () => {
+  const timingFailures = [
+    async () => new Response("Could not align narration with its captions. Please retry.", { status: 500 }),
+    async () => new Response("not json", { headers: { "Content-Type": "application/json" } }),
+    async () => { throw new TypeError("transcription connection reset"); },
+  ];
+  for (const failTiming of timingFailures) {
+    let calls = 0;
+    const audio = wav(3);
+    const { res, complete } = request({ text: "Giza is ancient." }, {
+      fetchImpl: async () => ++calls === 1 ? new Response(audio) : failTiming(),
+    });
+    await complete;
+    assert.equal(calls, 2);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(Buffer.from(res.body.audio, "base64"), audio);
+    assert.deepEqual(res.body.words.map(({ word: text }) => text), ["Giza", "is", "ancient."]);
+    assert.equal(res.body.words[0].start, 0);
+    assert.equal(res.body.words.at(-1).end, 3);
+  }
 });
 
 test("timeout aborts upstream work and responds with a retryable error", async () => {

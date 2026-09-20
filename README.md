@@ -179,9 +179,9 @@ request per sentence. Keep `OPENAI_API_KEY` server-side in `.env.local`; the key
 must have access to those models as well as the configured Realtime model. Both
 API routes run in Vite dev and preview; a static deployment needs equivalent
 server routes. Word boundaries are transcription estimates, so this removes
-network-induced drift without promising phoneme-perfect alignment. If spoken
-words cannot be matched to the original text, playback stops with a retry message
-instead of falling back to invented timestamps. See the official
+network-induced drift without promising phoneme-perfect alignment. If the timing
+service fails or its words cannot be matched to the original text, the valid audio
+still plays with captions estimated across its observed duration. See the official
 [speech generation](https://developers.openai.com/api/docs/guides/text-to-speech)
 and [word timestamp](https://developers.openai.com/api/docs/guides/speech-to-text#timestamps)
 documentation. Run `npm test` for playback, network, interruption, and timing checks.
