@@ -337,6 +337,8 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   const [portalPhase, setPortalPhase] = useState<"entering" | "active" | "leaving">("entering");
   const [suspended, setSuspended] = useState(false);
   const [splatReady, setSplatReady] = useState(false);
+  const [readyHistorianWorld, setReadyHistorianWorld] = useState<string | null>(null);
+  const [hiddenLandingWorld, setHiddenLandingWorld] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   // "photo" until the landing has been stepped through, so the in-world chrome
   // does not render on top of the photograph.
@@ -360,6 +362,20 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   const acceptSnapshot = useCallback((dataUrl: string) => {
     setSnapshot(dataUrl);
   }, []);
+  const historianWorld = world.worldId ?? world.title;
+  const prepareVoice = voice && autoEnter && live;
+  const historianReady = !prepareVoice || readyHistorianWorld === historianWorld;
+  const landingFadeResolveRef = useRef<(() => void) | null>(null);
+  const beginHistorianPresentation = useCallback(() => {
+    setReadyHistorianWorld(historianWorld);
+    return new Promise<void>((resolve) => { landingFadeResolveRef.current = resolve; });
+  }, [historianWorld]);
+  const finishLandingFade = useCallback(() => {
+    setHiddenLandingWorld(historianWorld);
+    const resolve = landingFadeResolveRef.current;
+    landingFadeResolveRef.current = null;
+    if (resolve) window.requestAnimationFrame(resolve);
+  }, [historianWorld]);
   useEffect(() => {
     if (entityTab === "map" && snapshot) requestAnimationFrame(() => requestAnimationFrame(() => setPortalPhase("active")));
   }, [entityTab, snapshot]);
@@ -375,7 +391,7 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   const caption = evidence && verdict ? verdict.reason : evidence ? "You're looking at a wall the camera never saw. Its height comes from the building opposite." : world.quote;
 
   return <main className={`explore-page ${evidence ? "evidence-mode" : ""} ${suspended ? "is-suspended" : ""}`}>
-    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} onCounts={setCounts} onVerdict={setVerdict} onMode={setMode} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
+    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} entryReady={historianReady} waitingMessage="CONNECTING TO OPENAI…" onLandingHidden={finishLandingFade} onCounts={setCounts} onVerdict={setVerdict} onMode={setMode} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
     <div className="explore-vignette" />
     {evidence && !live && <div className="evidence-map" />}
     {evidence && !live && <div className="frustum"><span>ORIGINAL PLATE — {world.date} · 6.4 M BEHIND YOU</span><i /><b /></div>}
@@ -411,9 +427,9 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
       </div>
     </div>
     {evidence && <aside className="legend"><p>EVIDENCE · {world.title.toUpperCase()}</p><span><i className="green" />SOURCE-VISIBLE · {share(2, world.evidence.split(" ")[0])}</span><span><i className="amber" />OCCLUDED · INFERRED · {share(1, "34%")}</span><span><i className="purple" />UNSUPPORTED · {share(0, "25%")}</span></aside>}
-    {(!live || (splatReady && mode === "world")) && (
-      <div className={`explore-caption ${voice ? "has-voice" : ""}`}>
-        {voice ? <VoiceHistorian world={world} evidence={evidence} counts={counts} verdict={verdict} hue={hue} onEntity={openEntity} paused={!!entity} /> : <><Historian hue={hue} state={speaking ? "listening" : "idle"} /><blockquote>“<EntityCaption text={caption} onEntity={openEntity} />”</blockquote></>}
+    {(!live || (splatReady && (mode === "world" || prepareVoice))) && (
+      <div className={`explore-caption ${voice ? "has-voice" : ""} ${mode !== "world" && hiddenLandingWorld !== historianWorld && live ? "is-preparing" : ""}`} aria-hidden={mode !== "world" && hiddenLandingWorld !== historianWorld && live}>
+        {voice ? <VoiceHistorian world={world} evidence={evidence} counts={counts} verdict={verdict} hue={hue} onEntity={openEntity} onPresentationReady={prepareVoice ? beginHistorianPresentation : undefined} paused={!!entity} /> : <><Historian hue={hue} state={speaking ? "listening" : "idle"} /><blockquote>“<EntityCaption text={caption} onEntity={openEntity} />”</blockquote></>}
         <p>{[world.place, world.date].filter(Boolean).join(" · ")}</p>
       </div>
     )}
