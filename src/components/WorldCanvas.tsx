@@ -13,16 +13,15 @@ type Props = {
   onReady?: (ready: boolean) => void;
   suspended?: boolean;
   onSnapshot?: (dataUrl: string) => void;
-  /** The pause menu is the only in-world chrome, so it carries the exit and the
-   * evidence toggle as well: cursor-steering makes a button you must travel to
-   * hostile, and a paused camera makes one you are already standing on safe. */
+  /** The pause menu is the only in-world chrome, so it carries the way out:
+   * cursor-steering makes a button you must travel to hostile, and a paused
+   * camera makes one you are already standing on safe. */
   onExit?: () => void;
-  onToggleEvidence?: () => void;
   voice?: boolean;
   onPaused?: (paused: boolean) => void;
 };
 
-export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit, onToggleEvidence, voice = false, onPaused }: Props) {
+export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit, voice = false, onPaused }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLImageElement>(null);
@@ -63,11 +62,6 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
     setPauseMenu(false);
     viewerRef.current?.setPaused(false);
   };
-  const reset = () => {
-    viewerRef.current?.resetToPhotographer();
-    resume();
-  };
-
   // Callbacks change identity every render; keep them in a ref so the viewer is
   // built once rather than torn down and rebuilt on each parent render.
   const sinks = useRef({ onCounts, onVerdict, onMode, resume });
@@ -269,11 +263,8 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
           </label>
           <div className="walk-pause-actions">
             <button className="button" onClick={resume}>Resume walking</button>
-            <button className="button ghost" onClick={reset}>Reset position</button>
-            {onToggleEvidence && <button className="button ghost" onClick={onToggleEvidence}>{evidence ? "Exit evidence" : "Evidence mode"}</button>}
             {onExit && <button className="quiet-button" onClick={onExit}>Leave world</button>}
           </div>
-          <small>M MENU · WASD WALK · SHIFT RUN</small>
         </section>
       </div>}
       {status.kind !== "ready" && (mode !== "photo" || status.kind === "error") && <div role="status" className={`explore-loading${status.kind === "error" ? " is-error" : ""}`}>{describe(status)}</div>}

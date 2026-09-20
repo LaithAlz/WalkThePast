@@ -378,7 +378,7 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   const caption = evidence && verdict ? verdict.reason : evidence ? "You're looking at a wall the camera never saw. Its height comes from the building opposite." : world.quote;
 
   return <main className={`explore-page ${evidence ? "evidence-mode" : ""} ${suspended ? "is-suspended" : ""}`}>
-    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} onCounts={setCounts} onVerdict={setVerdict} onMode={setMode} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} onToggleEvidence={onToggleEvidence} onExit={onExit} voice={voice} onPaused={setWorldPaused} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
+    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} onCounts={setCounts} onVerdict={setVerdict} onMode={setMode} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} onExit={onExit} voice={voice} onPaused={setWorldPaused} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
     <div className="explore-vignette" />
     {evidence && !live && <div className="evidence-map" />}
     {evidence && !live && <div className="frustum"><span>ORIGINAL PLATE — {world.date} · 6.4 M BEHIND YOU</span><i /><b /></div>}

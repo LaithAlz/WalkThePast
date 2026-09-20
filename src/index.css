@@ -132,7 +132,10 @@
 .walk-sensitivity input { width: 100%; accent-color: #3557c7; }
 .walk-pause-actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
 .walk-pause-actions .button, .walk-pause-actions .quiet-button { min-height: 38px; }
-.walk-pause-menu small { display: block; margin-top: 24px; color: rgba(240,243,247,.42); font: 9px 'IBM Plex Mono', monospace; letter-spacing: .14em; }
+/* .quiet-button is styled for the light pages; on this panel it was all but
+   invisible. */
+.walk-pause-actions .quiet-button { padding: 0 14px; border-radius: 9px; color: rgba(240,243,247,.72); }
+.walk-pause-actions .quiet-button:hover { color: #f0f3f7; background: rgba(240,243,247,.09); }
 
 /* ---- photograph landing + crossfade + wipe (Phase 1 presentation layer) ---- */
 .explore-host { position: absolute; inset: 0; background: #07090c; }/* no z-index: it would trap the pause dialog below the z-index 3-4 overlays */
