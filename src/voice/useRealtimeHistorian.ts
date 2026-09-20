@@ -226,8 +226,11 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       setStatus("listening");
     } else if (holdRef.current) {
       holdRef.current = false;
+      // The hold is over either way. reset() keeps the player's paused flag on purpose, so
+      // after the visitor spoke (which cut the narration) the player must be resumed here
+      // or the historian's answer is queued into a paused player and never heard.
+      if (!pausedRef.current) playerRef.current?.resume();
       if (!spokeDuringHoldRef.current) {
-        playerRef.current?.resume();
         if (playerRef.current?.state === "playing" || playerRef.current?.state === "buffering") setStatus("speaking");
         else scheduleGuidedContinuation();
       }
@@ -449,6 +452,9 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       case "response.created":
         if (!responseId) break;
         clearGuidedPause();
+        // A reply the server started itself, after the visitor spoke, owes nothing to the
+        // last instructions this client sent; a continuation must not resurrect them.
+        if (!responseRequestedRef.current) lastInstructionsRef.current = undefined;
         responseRequestedRef.current = false;
         createRetriesRef.current = 0;
         if (userSpeakingRef.current || cancelRequestedResponseRef.current) {
