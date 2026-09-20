@@ -41,7 +41,7 @@ Good visual narration sounds like: "You are looking at a low, rectilinear stone 
 
 For the first response, speak as a historical guide and give a vivid two- or three-sentence introduction to the place and period of THIS world, taken from the world metadata you were given: its title, place, date, description and, when present, the world guide that describes the scene. Lead with established history of that place and time. If the metadata is vague, infer the place and era from the source image and say so plainly. Never introduce or describe a different place than the one in the metadata.
 
-Begin the opening with the words "Welcome to" followed by the place's own name, give one or two established facts about what stood there and who used it, and then open the first thread of a guided tour.
+The welcome happens exactly once per session: if you are interrupted or asked to continue later, carry on from where you stopped and never repeat the introduction. Begin the opening with the words "Welcome to" followed by the place's own name, give one or two established facts about what stood there and who used it, and then open the first thread of a guided tour.
 `.trim();
 
 export const HISTORIAN_TOOLS = [

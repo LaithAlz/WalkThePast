@@ -72,6 +72,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
   const guidedPauseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const guidedPauseCountRef = useRef(0);
   const quizRef = useRef<HistorianQuiz | null>(null);
+  const holdRef = useRef(false); // push-to-talk key held
+  const spokeDuringHoldRef = useRef(false); // server VAD heard speech during this hold
   useEffect(() => { contextRef.current = context; }, [context]);
 
   const send = useCallback((event: { type: string; [key: string]: unknown }) => {
@@ -112,7 +114,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           output_modalities: ["text"],
           instructions: quizDue
             ? "The visitor has reached the third guided pause. Give a short one-to-three-question knowledge check now, asking only about facts you actually stated in this session or well-established facts of this place; never claim something was discussed unless you said it. Call presentQuizQuestion for the first question before speaking it, use exactly four choices with one correct answer, read all four choices, then say exactly: You can answer now. Wait for the visitor's answer."
-            : "The visitor has remained silent through the guided pause. Continue the historical tour with the most meaningful next topic. Briefly connect it to the previous segment, add new historically grounded context, do not repeat yourself, and end with: I'll pause here for you.",
+            : "The visitor has remained silent through the guided pause. Continue the historical tour with the most meaningful next topic; do not repeat the welcome or any introduction already given. Briefly connect it to the previous segment, add new historically grounded context, do not repeat yourself, and end with: I'll pause here for you.",
         },
       });
     }, GUIDED_PAUSE_MS);
@@ -200,9 +202,19 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       return;
     }
     if (!nextMuted) {
-      interruptNarration();
+      // Holding the key only holds the narration. It is cut off when the visitor actually speaks
+      // (speech_started); a tap with nothing said resumes exactly where it was.
+      holdRef.current = true;
+      spokeDuringHoldRef.current = false;
+      playerRef.current?.pause();
       setStatus("listening");
-      scheduleGuidedContinuation();
+    } else if (holdRef.current) {
+      holdRef.current = false;
+      if (!spokeDuringHoldRef.current) {
+        playerRef.current?.resume();
+        if (playerRef.current?.state === "playing" || playerRef.current?.state === "buffering") setStatus("speaking");
+        else scheduleGuidedContinuation();
+      }
     }
     userMutedRef.current = nextMuted;
     tracks.forEach((track) => { track.enabled = !nextMuted && !pausedRef.current; });
@@ -379,6 +391,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       case "input_audio_buffer.speech_started":
         if (pausedRef.current) break;
         userSpeakingRef.current = true;
+        spokeDuringHoldRef.current = true;
         interruptNarration();
         setStatus("listening");
         setUserCaption("Listening…");
