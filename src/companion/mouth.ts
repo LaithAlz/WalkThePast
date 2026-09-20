@@ -69,7 +69,7 @@ export class Mouth {
   /** What was found, for the one dev log that saves an hour of wondering. */
   get found(): string {
     if (this.open.length) return `${this.open.length} open, ${this.wide.length} wide, ${this.round.length} round blend shapes`;
-    return this.hasJaw ? "a jaw bone" : "nothing — this avatar has no mouth to move";
+    return this.hasJaw ? "a jaw bone" : "nothing; this avatar has no mouth to move";
   }
 
   /**
