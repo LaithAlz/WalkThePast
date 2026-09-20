@@ -5,6 +5,14 @@ export type MarbleModel = "marble-1.0-draft" | "marble-1.1" | "marble-1.1-plus";
 export type JobStatus = "queued" | "guide" | "painting" | "uploading" | "generating" | "downloading" | "ready" | "error";
 export type Job = { id: string; name: string; model: MarbleModel; status: JobStatus; stage: string; progress: number; elapsedS: number; startedAt: number; hasImage: boolean; worldId?: string; error?: string; credits?: number; guide?: string };
 
+export type WorldIndexEntry = { id: string; name: string; createdAt?: string };
+/** Generated worlds on disk, newest first. */
+export async function listWorlds(): Promise<WorldIndexEntry[]> {
+  const r = await fetch(`/worlds/index.json?t=${Date.now()}`);
+  const list = r.ok ? ((await r.json()) as WorldIndexEntry[]) : [];
+  return list.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+}
+
 /** Every generation the server knows about, newest first (they run in the background). */
 export async function listJobs(): Promise<Job[]> {
   const r = await fetch("/api/worlds/jobs");

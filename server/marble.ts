@@ -67,7 +67,7 @@ function progressOf(job: Job): number {
     case "queued": return 2;
     case "guide": return ramp(3, 10, 15);
     case "painting": return ramp(10, 25, 60);
-    case "uploading": return 27;
+    case "uploading": return ramp(26, 30, 45);
     case "generating": return Math.min(95, ramp(30, 96, EXPECTED_S[job.model] ?? 330));
     case "downloading": return 97;
     case "ready": return 100;
@@ -111,6 +111,7 @@ class Marble {
       method,
       headers: { "WLT-Api-Key": this.key, "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
     });
     const text = await r.text();
     if (!r.ok) throw new Error(`${method} ${url} -> ${r.status} ${text.slice(0, 300)}`);
@@ -126,7 +127,7 @@ class Marble {
       upload_info: { upload_url: string; upload_method?: string; required_headers?: Record<string, string> };
     };
     const info = prep.upload_info;
-    const put = await fetch(info.upload_url, { method: (info.upload_method || "PUT").toUpperCase(), headers: info.required_headers ?? {}, body: bytes });
+    const put = await fetch(info.upload_url, { method: (info.upload_method || "PUT").toUpperCase(), headers: info.required_headers ?? {}, body: bytes, signal: AbortSignal.timeout(180_000) });
     if (!put.ok) throw new Error(`upload PUT failed ${put.status}`);
     return prep.media_asset.media_asset_id ?? prep.media_asset.id!;
   }
@@ -142,7 +143,7 @@ class Marble {
 }
 
 async function download(url: string, dest: string) {
-  const r = await fetch(url);
+  const r = await fetch(url, { signal: AbortSignal.timeout(600_000) });
   if (!r.ok) throw new Error(`download ${url} -> ${r.status}`);
   await fs.writeFile(dest, Buffer.from(await r.arrayBuffer()));
 }
@@ -276,13 +277,13 @@ async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: s
     await fs.writeFile(path.join(dir, "world.json"), JSON.stringify(manifest, null, 2));
     await fs.writeFile(path.join(dir, "marble_world.json"), JSON.stringify(world, null, 2));
     const indexPath = path.join(worldsDir, "index.json");
-    let index: { id: string; name: string }[] = [];
+    let index: { id: string; name: string; createdAt?: string }[] = [];
     try {
       index = JSON.parse(await fs.readFile(indexPath, "utf8"));
     } catch {
       /* first world */
     }
-    index = [{ id, name: job.name }, ...index.filter((w) => w.id !== id)];
+    index = [{ id, name: job.name, createdAt: new Date().toISOString() }, ...index.filter((w) => w.id !== id)];
     await fs.writeFile(indexPath, JSON.stringify(index, null, 2));
     job.worldId = id;
     job.image = undefined;

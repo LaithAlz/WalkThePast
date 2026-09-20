@@ -6,7 +6,7 @@ import { VoiceHistorian } from "./components/VoiceHistorian";
 import { KnowledgePortal } from "./components/KnowledgePortal";
 import { enrichCaption, type HistoricalEntity } from "./historian/entities";
 import type { EvidenceCounts, Verdict } from "./viewer/Viewer";
-import { generateWorld, getCredits, imagineImage, listJobs, MODEL_CREDITS, writeGuide, type Job, type MarbleModel, type WorldImage } from "./lib/api";
+import { generateWorld, getCredits, imagineImage, listJobs, listWorlds, MODEL_CREDITS, writeGuide, type Job, type MarbleModel, type WorldImage } from "./lib/api";
 import { prepPhoto, type PreppedImage } from "./lib/prep";
 
 type Screen = "landing" | "auth" | "upload" | "library" | "samples" | "explore";
@@ -15,7 +15,39 @@ type SourceKind = "image" | "video" | "text";
 type UploadSource = { name: string; kind: SourceKind; file?: File };
 type Generation = { jobId: string; name: string; sources: UploadSource[] };
 /** `worldId` resolves to public/worlds/<id>/world.json. Without one the card is still a mock. */
-type SampleWorld = { title: string; place: string; date: string; evidence: string; image: string; note: string; quote: string; worldId?: string; voicePreview?: boolean };
+type SampleWorld = { title: string; place: string; date: string; evidence: string; image: string; note: string; quote: string; worldId?: string; voicePreview?: boolean; /** progress % while a generation is still running */ building?: number; failed?: boolean };
+
+// Each screen is a URL, so refresh, back and links work: / create, /worlds, /pick, /walk/<world id or sample-N>.
+const PATHS: Record<Exclude<Screen, "explore">, string> = { landing: "/", auth: "/auth", upload: "/create", library: "/worlds", samples: "/pick" };
+function screenFromLocation(): Screen {
+  const path = location.pathname.replace(/\/+$/, "") || "/";
+  if (path.startsWith("/walk/")) return "explore";
+  return ((Object.keys(PATHS) as Exclude<Screen, "explore">[]).find((k) => PATHS[k] === path)) ?? "landing";
+}
+const walkIdFromLocation = () => decodeURIComponent(location.pathname.split("/walk/")[1] ?? "");
+
+/** Generations running on the server, polled while any is still going; `onReady` fires when one finishes. */
+function useJobs(onReady?: () => void): Job[] {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  useEffect(() => {
+    let stop = false;
+    let readyIds: Set<string> | null = null;
+    const tick = async () => {
+      const list = await listJobs();
+      if (stop) return;
+      setJobs(list);
+      const nowReady = new Set(list.filter((j) => j.status === "ready").map((j) => j.id));
+      if (readyIds && [...nowReady].some((id) => !readyIds!.has(id))) onReady?.();
+      readyIds = nowReady;
+      if (list.some((j) => j.status !== "ready" && j.status !== "error")) setTimeout(tick, 3000);
+    };
+    void tick();
+    return () => { stop = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return jobs;
+}
+const buildingWorlds = (jobs: Job[]): SampleWorld[] => jobs.filter((j) => j.status !== "ready").map((j) => ({ title: j.name, place: j.status === "error" ? "FAILED" : "BUILDING", date: j.status === "error" ? "" : `${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, evidence: j.status === "error" ? (j.error ?? "failed").slice(0, 70) : j.stage.toUpperCase(), image: j.hasImage ? `/api/worlds/jobs/${j.id}/image` : images.mouffetard, note: j.status === "error" ? "This generation did not finish." : "Building in the background. You can leave this page.", quote: "", worldId: `job-${j.id}`, building: j.status === "error" ? undefined : j.progress, failed: j.status === "error" }));
+const generatedWorld = (w: { id: string; name: string }): SampleWorld => ({ title: w.name, place: "GENERATED WORLD", date: "", evidence: "LIVE PROVENANCE", image: `/worlds/${w.id}/source.jpg`, note: "Built from a photograph through Marble and classified against it.", quote: "You’re standing where the photographer stood.", worldId: w.id });
 
 const images = {
   atget: "/assets/atget-paris.jpg",
@@ -50,7 +82,17 @@ const voicePreviewPrefix = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/llm-v
 const voicePreview = location.pathname === voicePreviewPrefix || location.pathname.startsWith(`${voicePreviewPrefix}/`);
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("landing");
+  const [screen, setScreenState] = useState<Screen>(screenFromLocation);
+  const setScreen = (next: Screen, walkId?: string) => {
+    setScreenState(next);
+    const path = next === "explore" ? `/walk/${encodeURIComponent(walkId ?? "")}` : PATHS[next];
+    if (location.pathname !== path) history.pushState({}, "", path);
+  };
+  useEffect(() => {
+    const onPop = () => setScreenState(screenFromLocation());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [evidence, setEvidence] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -74,16 +116,29 @@ export default function App() {
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [screen]);
 
-  const explore = () => { setActiveSample(sampleWorlds[0]); setExploreReturn("library"); setEvidence(false); setScreen("explore"); };
-  const chooseSample = (sample: SampleWorld) => { setActiveSample(sample); setExploreReturn("samples"); setEvidence(false); setScreen("explore"); };
+  const walkIdOf = (sample: SampleWorld) => sample.worldId ?? `sample-${sampleWorlds.indexOf(sample)}`;
+  const explore = () => { setActiveSample(sampleWorlds[0]); setExploreReturn("library"); setEvidence(false); setScreen("explore", walkIdOf(sampleWorlds[0])); };
+  const chooseSample = (sample: SampleWorld) => { setActiveSample(sample); setExploreReturn("samples"); setEvidence(false); setScreen("explore", walkIdOf(sample)); };
   // Generation runs in the background on the server: the library shows it building, with a percentage.
   const startGeneration = () => setScreen("library");
   const openGenerated = (worldId: string, name: string) => {
     setActiveSample({ title: name, place: "YOUR PHOTOGRAPH", date: "", evidence: "LIVE PROVENANCE", image: `/worlds/${worldId}/source.jpg`, note: "Generated from your photograph and classified against it.", quote: "You’re standing where the photographer stood.", worldId });
     setExploreReturn("library");
     setEvidence(false);
-    setScreen("explore");
+    setScreen("explore", worldId);
   };
+  // Deep link: /walk/<id> on load (refresh or a shared link) resolves the world before showing it.
+  useEffect(() => {
+    if (screen !== "explore") return;
+    const id = walkIdFromLocation();
+    if (id === walkIdOf(activeSample)) return;
+    const sampleIndex = /^sample-(\d+)$/.exec(id);
+    if (sampleIndex) { const sample = sampleWorlds[+sampleIndex[1]]; if (sample) { setActiveSample(sample); setExploreReturn("samples"); } else setScreen("landing"); return; }
+    void listWorlds().then((list) => {
+      const w = list.find((x) => x.id === id);
+      if (w) openGenerated(w.id, w.name); else setScreen("landing");
+    });
+  }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openAuth = (mode: AuthMode) => { setAuthMode(mode); setScreen("auth"); };
 
@@ -272,42 +327,27 @@ function Upload({ onBack, onGenerate, onExplore, onAuth, onLogin }: { onBack: ()
 }
 
 function SamplePicker({ onBack, onChoose }: { onBack: () => void; onChoose: (sample: SampleWorld) => void }) {
-  // Worlds generated through the in-app bridge land in public/worlds/index.json; show them first.
+  // Worlds generated through the in-app bridge land in public/worlds/index.json, newest first; generations still
+  // running on the server show first of all, with their progress.
   const [generated, setGenerated] = useState<SampleWorld[]>([]);
-  useEffect(() => {
-    fetch("/worlds/index.json").then((r) => (r.ok ? r.json() : [])).then((list: { id: string; name: string }[]) => {
-      const known = new Set(sampleWorlds.map((w) => w.worldId));
-      setGenerated(list.filter((w) => !known.has(w.id) && !w.id.startsWith("marble-sample")).map((w) => ({ title: w.name, place: "GENERATED WORLD", date: "", evidence: "LIVE PROVENANCE", image: `/worlds/${w.id}/source.jpg`, note: "Built from a photograph through Marble and classified against it.", quote: "You’re standing where the photographer stood.", worldId: w.id })));
-    }).catch(() => undefined);
-  }, []);
-  const all = [...generated, ...sampleWorlds];
-  return <main className="page sample-page"><header className="site-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></header><section className="sample-picker"><div className="sample-picker-intro"><h1>Choose a world<br /><em>to step into.</em></h1></div><div className="sample-picker-grid">{all.map((sample) => <button className="sample-picker-card" key={sample.title} onClick={() => onChoose(sample)}><div className="sample-picker-image"><img src={sample.image} alt="" /><span>READY TO WALK</span></div><div className="sample-picker-info"><p>{[sample.place, sample.date].filter(Boolean).join(" · ")}</p><h2>{sample.title}</h2><span>{sample.note}</span><b>{sample.evidence} <i>→</i></b></div></button>)}</div></section></main>;
+  const load = () => listWorlds().then((list) => {
+    const known = new Set(sampleWorlds.map((w) => w.worldId));
+    setGenerated(list.filter((w) => !known.has(w.id) && !w.id.startsWith("marble-sample")).map(generatedWorld));
+  }).catch(() => undefined);
+  useEffect(() => { void load(); }, []);
+  const jobs = useJobs(load);
+  const all = [...buildingWorlds(jobs), ...generated, ...sampleWorlds];
+  return <main className="page sample-page"><header className="site-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></header><section className="sample-picker"><div className="sample-picker-intro"><h1>Choose a world<br /><em>to step into.</em></h1></div><div className="sample-picker-grid">{all.map((sample) => <button className={`sample-picker-card ${sample.building !== undefined ? "building" : ""} ${sample.failed ? "failed" : ""}`} key={sample.worldId ?? sample.title} disabled={sample.building !== undefined || sample.failed} onClick={() => onChoose(sample)}><div className="sample-picker-image"><img src={sample.image} alt="" /><span>{sample.failed ? "FAILED" : sample.building !== undefined ? `BUILDING · ${sample.building}%` : "READY TO WALK"}</span>{sample.building !== undefined && <i style={{ width: `${sample.building}%` }} />}</div><div className="sample-picker-info"><p>{[sample.place, sample.date].filter(Boolean).join(" · ")}</p><h2>{sample.title}</h2><span>{sample.note}</span><b>{sample.evidence} {sample.building === undefined && !sample.failed && <i>→</i>}</b></div></button>)}</div></section></main>;
 }
 
 type LibraryWorld = { id: string; title: string; detail: string; image: string; building?: boolean; failed?: boolean; pct?: number; open?: () => void };
 
 function Library({ onNew, onExplore, onOpen }: { onNew: () => void; onExplore: () => void; onOpen: (worldId: string, name: string) => void }) {
-  const [jobs, setJobs] = useState<Job[]>([]);
   const [generated, setGenerated] = useState<{ id: string; name: string }[]>([]);
-  const loadGenerated = () => fetch(`/worlds/index.json?t=${Date.now()}`).then((r) => (r.ok ? r.json() : [])).then((list: { id: string; name: string }[]) => setGenerated(list.filter((w) => !w.id.startsWith("marble-sample")))).catch(() => undefined);
-  useEffect(() => {
-    let stop = false;
-    let readyIds = new Set<string>();
-    const tick = async () => {
-      const list = await listJobs();
-      if (stop) return;
-      setJobs(list);
-      const nowReady = new Set(list.filter((j) => j.status === "ready").map((j) => j.id));
-      if ([...nowReady].some((id) => !readyIds.has(id))) void loadGenerated();
-      readyIds = nowReady;
-      if (list.some((j) => j.status !== "ready" && j.status !== "error")) setTimeout(tick, 3000);
-    };
-    void loadGenerated();
-    void tick();
-    return () => { stop = true; };
-  }, []);
-  const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-  const building: LibraryWorld[] = jobs.filter((j) => j.status !== "ready").map((j) => ({ id: `job-${j.id}`, title: j.name, detail: j.status === "error" ? (j.error ?? "failed").slice(0, 60) : `${j.stage.toUpperCase()} · ${clock(j.elapsedS)}`, image: j.hasImage ? `/api/worlds/jobs/${j.id}/image` : images.mouffetard, building: j.status !== "error", failed: j.status === "error", pct: j.progress }));
+  const load = () => listWorlds().then((list) => setGenerated(list.filter((w) => !w.id.startsWith("marble-sample")))).catch(() => undefined);
+  useEffect(() => { void load(); }, []);
+  const jobs = useJobs(load);
+  const building: LibraryWorld[] = jobs.filter((j) => j.status !== "ready").map((j) => ({ id: `job-${j.id}`, title: j.name, detail: j.status === "error" ? (j.error ?? "failed").slice(0, 60) : `${j.stage.toUpperCase()} · ${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, image: j.hasImage ? `/api/worlds/jobs/${j.id}/image` : images.mouffetard, building: j.status !== "error", failed: j.status === "error", pct: j.progress }));
   const ready: LibraryWorld[] = generated.map((w) => ({ id: w.id, title: w.name, detail: "GENERATED WORLD · WALKABLE", image: `/worlds/${w.id}/source.jpg`, open: () => onOpen(w.id, w.name) }));
   const demo: LibraryWorld[] = worlds.map((w) => ({ id: `demo-${w.title}`, title: w.title, detail: w.detail, image: w.image, open: onExplore }));
   const all = [...building, ...ready, ...demo];
