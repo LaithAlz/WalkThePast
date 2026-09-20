@@ -33,8 +33,10 @@ export type MarbleEvent = {
 
 /** Marble polls every 6s in the Vite bridge; keep the same cadence, with a ceiling so a
  *  stuck operation fails the instance instead of sleeping for a year. */
-const POLL_MS = 6_000;
-const MAX_POLLS = 400; // 40 minutes
+/** Every poll is a subrequest, and a Workflow instance has a budget of them (50 on the
+ *  free plan). A five-minute generation at 6 s used the whole budget on polling alone. */
+const POLL_MS = 12_000;
+const MAX_POLLS = 200; // 40 minutes
 
 export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
   async run(event: WorkflowEvent<MarbleEvent>, step: WorkflowStep) {
@@ -101,6 +103,7 @@ export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
       // 5. Poll to completion. step.sleep does not count against the step limit.
       let world: MarbleWorld | undefined;
       let credits: number | undefined;
+      let lastProgress = "";
       for (let i = 0; i < MAX_POLLS; i++) {
         // A poll is cheap and idempotent, so a slow or refused status read is asked again
         // in seconds. The default retry policy backs off exponentially, which left the
@@ -108,8 +111,12 @@ export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
         const poll = await step.do(`poll Marble ${i}`, { retries: { limit: 20, delay: "5 seconds", backoff: "constant" }, timeout: "1 minute" }, async () => {
           const op = (await marble.operation(operationId)) as MarbleOperation;
           const progress = op.metadata?.progress?.status;
-          // A failed status write must not fail the poll: the generation is unaffected.
-          if (progress) await mark("generating", `Marble: ${progress.toLowerCase().replace(/_/g, " ")}`).catch(() => {});
+          // Written only when Marble's status text changes: each write is two more
+          // subrequests, and a failed write must not fail the poll.
+          if (progress && progress !== lastProgress) {
+            lastProgress = progress;
+            await mark("generating", `Marble: ${progress.toLowerCase().replace(/_/g, " ")}`).catch(() => {});
+          }
           if (op.error) throw new NonRetryableError(op.error.message ?? "generation failed");
           // A step's return value is serialized, and the world is an open-ended object
           // that Serializable<T> cannot vouch for, so carry it as JSON text. It is
