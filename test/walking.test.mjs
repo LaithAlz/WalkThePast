@@ -187,14 +187,17 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
     pointer('pointermove', { pointerType: 'mouse', clientX: 700, clientY: 400 });
     assert.equal(c.yaw, awayYaw, 're-entering the canvas does not jump the view');
 
-    // Escape pauses, and nothing turns while paused.
+    // M pauses, and nothing turns while paused. Escape is the browser's key for
+    // leaving fullscreen and cannot be taken back, so it is not ours to use.
     key('Escape');
-    assert.equal(pauseRequests, 1, 'Escape opens the pause menu');
+    assert.equal(pauseRequests, 0, 'Escape is left to the browser');
+    key('KeyM');
+    assert.equal(pauseRequests, 1, 'M opens the pause menu');
     const pausedYaw = c.yaw;
     pointer('pointermove', { pointerType: 'mouse', clientX: 60, clientY: 40 });
     assert.equal(c.yaw, pausedYaw, 'a paused viewer ignores pointer input');
-    key('Escape');
-    assert.equal(resumeRequests, 1, 'Escape closes the pause menu');
+    key('KeyM');
+    assert.equal(resumeRequests, 1, 'M closes the pause menu');
     assert.equal(pauseRequests, 1, 'closing the menu does not re-open it');
 
     // Touch has no cursor, so it turns by swiping and stops when the finger lifts.

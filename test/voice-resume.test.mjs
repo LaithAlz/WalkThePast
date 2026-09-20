@@ -79,8 +79,24 @@ async function createHistorian({ blockedPlayback = false } = {}) {
     removeAttribute(name) { if (name === "src") this.src = ""; }
     load() {}
   }
+  const timers = new Map();
+  const clock = {
+    set(callback, delay) { const id = ++serial; timers.set(id, { callback, delay }); return id; },
+    clear(id) { timers.delete(id); },
+    /** Fire every timer due within `ms`, as a real clock would. */
+    advance(ms) {
+      for (const [id, timer] of [...timers]) {
+        if (timer.delay > ms) continue;
+        timers.delete(id);
+        timer.callback();
+      }
+    },
+  };
   class MockPeer {
+    connectionState = "connected";
     constructor() { peer = this; }
+    /** Drive the ICE lifecycle the way the browser does. */
+    reach(state) { this.connectionState = state; this.onconnectionstatechange?.(); }
     createDataChannel() { return channel; }
     addTrack() {}
     async createOffer() { return { type: "offer", sdp: "fixture-offer" }; }
@@ -129,6 +145,7 @@ async function createHistorian({ blockedPlayback = false } = {}) {
     },
     FileReader: class { readAsDataURL() { this.result = "data:image/png;base64,fixture"; this.onload(); } },
     RTCPeerConnection: MockPeer, URL, AbortController, console,
+    setTimeout: clock.set, clearTimeout: clock.clear,
   }, { filename: "useRealtimeHistorian.js" });
   const context = {
     world: { id: "giza", title: "Giza", place: "Egypt", date: "Old Kingdom", description: "Fixture", sourceImage: "/fixture.png" },
@@ -142,7 +159,7 @@ async function createHistorian({ blockedPlayback = false } = {}) {
     }
   }
   const fixture = {
-    sent, microphone, requests, audios, frames, revoked,
+    sent, microphone, requests, audios, frames, revoked, clock, timers,
     get voice() { flush(); return value; },
     get audio() { return audios.at(-1); },
     get peer() { return peer; },
@@ -461,4 +478,47 @@ test("a browser playback block reports an error and cannot advance captions", as
   assert.equal(f.audio.paused, true);
   assert.equal(f.frames.size, 0);
   assert.equal(f.microphone.readyState, "ended");
+});
+
+// A pause is only worth resuming if the session is still there when you come
+// back, so a network blip must not be mistaken for a lost conversation.
+test("a transient ICE drop does not end the conversation", async (t) => {
+  const f = await createHistorian(); t.after(() => f.cleanup());
+  await f.start(opening);
+  f.act((voice) => voice.pause("detour"));
+
+  f.peer.reach("disconnected");
+  f.act(() => {});
+  assert.notEqual(f.voice.status, "error", "a drop alone does not fail the session");
+  assert.equal(f.voice.error, "", "and says nothing to the visitor");
+
+  f.peer.reach("connected");
+  f.act(() => {});
+  f.clock.advance(60_000);
+  f.act(() => {});
+  assert.equal(f.voice.error, "", "recovery cancels the pending failure");
+  assert.equal(f.timers.size, 0, "and leaves no timer behind");
+
+  f.act((voice) => voice.resume("detour"));
+  assert.equal(f.voice.isPaused, false, "so the historian picks up where it left off");
+  assert.notEqual(f.voice.status, "error");
+});
+
+test("an ICE drop that does not recover ends the session", async (t) => {
+  const f = await createHistorian(); t.after(() => f.cleanup());
+  await f.start(opening);
+  f.peer.reach("disconnected");
+  f.clock.advance(60_000);
+  f.act(() => {});
+  assert.equal(f.voice.status, "error");
+  assert.match(f.voice.error, /connection lost/i);
+});
+
+test("a failed connection ends the session at once", async (t) => {
+  const f = await createHistorian(); t.after(() => f.cleanup());
+  await f.start(opening);
+  f.peer.reach("failed");
+  f.act(() => {});
+  assert.equal(f.voice.status, "error");
+  assert.equal(f.timers.size, 0, "failing outright waits for nothing");
 });

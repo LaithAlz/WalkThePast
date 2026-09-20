@@ -296,7 +296,12 @@ export class Viewer {
   }
 
   /** While the photograph is showing, the world should not respond to input. */
+  /** Whether the app has handed input to the world. Walking preparation and
+   * reset must restore this rather than switching input on themselves. */
+  private interactive = false;
+
   setInteractive(on: boolean) {
+    this.interactive = on;
     this.controls.setEnabled(on);
   }
 
@@ -322,7 +327,7 @@ export class Viewer {
     if (this.walking?.ready) {
       this.walking.reset();
       this.camera.position.copy(this.walking.eye);
-      this.controls.enabled = true;
+      this.controls.setEnabled(this.interactive);
       this.reportWalking();
     }
   }
@@ -368,7 +373,9 @@ export class Viewer {
       if (!motor.spawn(spawn)) throw new Error("No safe starting position. A walking spawn needs to be configured.");
       this.walking = motor;
       this.controls.setMotor(motor);
-      this.controls.enabled = true;
+      // Restore what the app asked for rather than granting input of our own:
+      // the collider usually finishes while the photo landing is still up.
+      this.controls.setEnabled(this.interactive);
       this.reportWalking();
     } catch (error) {
       if (signal.aborted || token !== this.loadToken || this.disposed) return;

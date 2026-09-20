@@ -12,6 +12,7 @@
  *  - scroll: turns as well, banked and eased out over a few frames
  *  - touch: one-finger swipe turns, since a touchscreen has no cursor
  *  - WASD grounded capsule movement, Shift run; Q/C height in development fly mode
+ *  - M: pause menu. Not Escape, which the browser spends leaving fullscreen.
  *  - gamepad: left stick walk, right stick look, LT/RT run
  *
  * Yaw/pitch are the source of truth; call syncFromCamera() after setting the
@@ -152,8 +153,10 @@ export class FirstPersonControls {
     this.on(document, "keydown", (e) => {
       const ev = e as KeyboardEvent;
       if (!this.enabled || isTyping(ev)) return;
-      if (ev.code === "Escape") {
-        // Nothing captures the pointer, so this key is never swallowed.
+      if (ev.code === "KeyM") {
+        // Not Escape: the browser spends that key leaving fullscreen, and a page
+        // cannot preventDefault its way out of that. M is ours to keep.
+        ev.preventDefault();
         if (this.paused) this.onResumeRequest?.();
         else { this.clearInput(); this.onPauseRequest?.(); }
         return;

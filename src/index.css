@@ -52,11 +52,11 @@
 .voice-historian.has-media-controls .voice-orb-controls .voice-side-button:hover, .voice-historian.has-media-controls .voice-orb-controls .voice-mute-button:hover { transform: scale(1.08); }
 .voice-historian blockquote { width: 100%; margin: 14px 0 0; }
 .explore-info-card { width: 252px; max-height: calc(100vh - 120px); overflow-y: auto; }
-.explore-shortcuts { margin: 0 5px 9px; padding: 8px 3px 10px; border-bottom: 1px solid rgba(240,243,247,.11); }
-.explore-shortcuts div { display: grid; grid-template-columns: 72px 1fr; gap: 9px; align-items: baseline; min-height: 24px; }
-.explore-shortcuts dt, .explore-shortcuts dd { margin: 0; }
-.explore-shortcuts dt { color: rgba(240,243,247,.88); font: 9px/1.2 'IBM Plex Mono', monospace; letter-spacing: .1em; text-transform: uppercase; }
-.explore-shortcuts dd { color: rgba(240,243,247,.5); font: 400 14px/1.2 'Instrument Serif', Georgia, serif; }
+.explore-shortcuts, .walk-shortcuts { margin: 0 5px 9px; padding: 8px 3px 10px; border-bottom: 1px solid rgba(240,243,247,.11); }
+.explore-shortcuts div, .walk-shortcuts div { display: grid; grid-template-columns: 72px 1fr; gap: 9px; align-items: baseline; min-height: 24px; }
+.explore-shortcuts dt, .explore-shortcuts dd, .walk-shortcuts dt, .walk-shortcuts dd { margin: 0; }
+.explore-shortcuts dt, .walk-shortcuts dt { color: rgba(240,243,247,.88); font: 9px/1.2 'IBM Plex Mono', monospace; letter-spacing: .1em; text-transform: uppercase; }
+.explore-shortcuts dd, .walk-shortcuts dd { color: rgba(240,243,247,.5); font: 400 14px/1.2 'Instrument Serif', Georgia, serif; }
 
 /* Historian orb. Hue = the evidence state under the crosshair; the animation = what it is doing.
    Deformation is non-uniform scale + rotation on purpose: a uniform pulse reads as a loading
@@ -119,11 +119,13 @@
 .explore-page button:focus-visible, .explore-canvas:focus-visible { outline: 2px solid #b8caff; outline-offset: 3px; }
 @media (pointer: coarse) { .walking-touch { display: grid; }.explore-caption { bottom: 148px; }.evidence-mode .explore-caption { bottom: 280px; }.legend { bottom: 146px; } }
 .explore-loading { position: absolute; z-index: 5; top: 50%; left: 50%; padding: 14px 20px; border: 1px solid rgba(240,243,247,.12); border-radius: 12px; background: rgba(9,11,15,.72); color: rgba(240,243,247,.8); font: 10px 'IBM Plex Mono', monospace; letter-spacing: .14em; white-space: nowrap; backdrop-filter: blur(16px); transform: translate(-50%,-50%); }
-.walk-pause-backdrop { position: absolute; z-index: 8; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(5,7,10,.48); backdrop-filter: blur(8px); }
-.walk-pause-menu { width: min(420px, 100%); padding: 30px; border: 1px solid rgba(240,243,247,.16); border-radius: 18px; color: #f0f3f7; background: rgba(12,16,22,.92); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
+.walk-pause-backdrop { position: absolute; z-index: 8; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 24px; background: rgba(5,7,10,.48); backdrop-filter: blur(8px); }
+.walk-pause-menu { width: min(468px, 100%); padding: 30px; border: 1px solid rgba(240,243,247,.16); border-radius: 18px; color: #f0f3f7; background: rgba(12,16,22,.92); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
 .walk-pause-menu .eyebrow { margin: 0 0 14px; color: #9fb6ff; }
 .walk-pause-menu h2 { margin: 0; font: 400 40px/1 'Instrument Serif', serif; }
 .walk-pause-menu > p:not(.eyebrow) { margin: 12px 0 22px; color: rgba(240,243,247,.68); font-size: 14px; line-height: 1.5; }
+.walk-shortcuts { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; margin: 0 0 20px; padding: 0 0 16px; border-bottom: 1px solid rgba(240,243,247,.11); }
+.walk-shortcuts dd { color: rgba(240,243,247,.62); }
 .walk-sensitivity { display: block; margin: 0 0 22px; }
 .walk-sensitivity span { display: flex; justify-content: space-between; margin-bottom: 8px; color: rgba(240,243,247,.68); font-size: 13px; }
 .walk-sensitivity b { color: #b8caff; font-weight: 500; font-variant-numeric: tabular-nums; }

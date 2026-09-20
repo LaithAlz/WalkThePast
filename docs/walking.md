@@ -94,10 +94,18 @@ click-to-capture (pointer lock) and no drag-to-look: you turn by moving.
   and a cursor parked on a button never spins the world. Re-entering the canvas
   reseeds from the entry point rather than from where the cursor was last seen,
   so coming back from a button never snaps the view. The unavoidable cost of
-  cursor-steering is that the view does turn on the way to a control; Escape
+  cursor-steering is that the view does turn on the way to a control; M
   freezes everything if you need the pointer somewhere without moving.
-- Escape opens the pause menu and Escape again resumes. Since nothing captures
-  the pointer, the key is never swallowed and this needs no special handling.
+- M opens the pause menu and M again resumes. Escape would be the conventional
+  key, but a browser spends it leaving fullscreen and a page cannot
+  preventDefault its way out of that, so pressing it would cost the visitor
+  their fullscreen and hand them a menu they did not ask for.
+- Because the view turns on the way to any control, the pause menu is the only
+  in-world chrome: walking, looking and the voice historian are all held while
+  it is up, so its buttons — resume, reset, evidence, leave — are the one place
+  a click costs you nothing. The transport stays open across a pause, and a
+  transient ICE drop no longer ends the session, so the conversation is still
+  there when you come back.
 - Look sensitivity is a slider in the pause menu, persisted per browser in
   `localStorage` under `wtp:look-sensitivity` and clamped to 0.25×–3×. It
   scales cursor, edge, scroll and gamepad turning alike. The right value depends on

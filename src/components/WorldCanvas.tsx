@@ -13,10 +13,16 @@ type Props = {
   onReady?: (ready: boolean) => void;
   suspended?: boolean;
   onSnapshot?: (dataUrl: string) => void;
+  /** The pause menu is the only in-world chrome, so it carries the exit and the
+   * evidence toggle as well: cursor-steering makes a button you must travel to
+   * hostile, and a paused camera makes one you are already standing on safe. */
   onExit?: () => void;
+  onToggleEvidence?: () => void;
+  voice?: boolean;
+  onPaused?: (paused: boolean) => void;
 };
 
-export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit }: Props) {
+export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit, onToggleEvidence, voice = false, onPaused }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLImageElement>(null);
@@ -129,6 +135,10 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
   }, [status, onReady]);
 
   useEffect(() => {
+    onPaused?.(pauseMenu);
+  }, [pauseMenu, onPaused]);
+
+  useEffect(() => {
     viewerRef.current?.setEvidenceMode(evidence);
   }, [evidence]);
 
@@ -192,7 +202,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
           ref={canvasRef}
           className="explore-canvas"
           tabIndex={0}
-          aria-label="3D world. Move the pointer or scroll to turn. Press Escape for the menu. Use W A S D or arrow keys to walk, Shift to run, R to reset."
+          aria-label="3D world. Move the pointer or scroll to turn. Press M for the menu. Use W A S D or arrow keys to walk, Shift to run, R to reset."
         />
         <img
           ref={overlayRef}
@@ -237,7 +247,19 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
         <section className="walk-pause-menu" role="dialog" aria-modal="true" aria-labelledby="walk-pause-title">
           <p className="eyebrow">WALK THE PAST</p>
           <h2 id="walk-pause-title">Paused</h2>
-          <p>Looking and walking are paused. Resume to carry on exploring.</p>
+          <p>Walking, looking and the historian are all held. Resume to carry on where you left off.</p>
+          <dl className="walk-shortcuts">
+            <div><dt>W A S D</dt><dd>Move</dd></div>
+            <div><dt>Shift</dt><dd>Run</dd></div>
+            <div><dt>Mouse</dt><dd>Turn</dd></div>
+            <div><dt>Scroll</dt><dd>Turn further</dd></div>
+            {voice && <div><dt>Space</dt><dd>Hold to talk</dd></div>}
+            <div><dt>M</dt><dd>This menu</dd></div>
+            <div><dt>R</dt><dd>Reset position</dd></div>
+            <div><dt>E</dt><dd>Evidence</dd></div>
+            <div><dt>Tab</dt><dd>Hold for photo</dd></div>
+            <div><dt>V</dt><dd>Image wipe</dd></div>
+          </dl>
           <label className="walk-sensitivity">
             <span>Look sensitivity<b>{sensitivity.toFixed(2)}×</b></span>
             <input
@@ -248,9 +270,10 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
           <div className="walk-pause-actions">
             <button className="button" onClick={resume}>Resume walking</button>
             <button className="button ghost" onClick={reset}>Reset position</button>
+            {onToggleEvidence && <button className="button ghost" onClick={onToggleEvidence}>{evidence ? "Exit evidence" : "Evidence mode"}</button>}
             {onExit && <button className="quiet-button" onClick={onExit}>Leave world</button>}
           </div>
-          <small>ESC MENU · WASD WALK · SHIFT RUN</small>
+          <small>M MENU · WASD WALK · SHIFT RUN</small>
         </section>
       </div>}
       {status.kind !== "ready" && (mode !== "photo" || status.kind === "error") && <div role="status" className={`explore-loading${status.kind === "error" ? " is-error" : ""}`}>{describe(status)}</div>}

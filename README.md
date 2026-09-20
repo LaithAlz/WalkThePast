@@ -146,8 +146,10 @@ everything inside the render loop.
 - Camera control uses grounded first-person movement, with nothing to hold or
   click: moving the cursor over the scene turns, holding it against a left or
   right edge keeps turning so a full circle is reachable, and scrolling turns
-  as well. There is no pointer lock and no drag-to-look. Escape opens the pause menu,
-  which carries a persisted look sensitivity slider.
+  as well. There is no pointer lock and no drag-to-look. M opens the pause menu,
+  which is the only in-world chrome: it carries the controls, a persisted look
+  sensitivity slider, the evidence toggle and the way out. Not Escape, which the
+  browser spends leaving fullscreen.
   WASD/arrows walk, Shift runs and R resets. Collision meshes enable walls, gravity,
   stairs and slopes. Without one, the viewer explicitly shows a level-ground
   preview. See [Walking and collision setup](docs/walking.md) for the manifest
