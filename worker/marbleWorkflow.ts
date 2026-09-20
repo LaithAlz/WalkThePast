@@ -17,7 +17,7 @@ import { Marble, worldPrompt, slug, type MarbleOperation, type MarbleWorld } fro
 import { buildManifest, SPZ_TIERS } from "../server/worldManifest.ts";
 import { worldGuide, imagineImage } from "../server/views.ts";
 import type { Env, JobRecord, JobStatus } from "./types.ts";
-import { putJob, readIndex, writeIndex } from "./store.ts";
+import { getJob, putJob, readIndex, writeIndex } from "./store.ts";
 
 export type MarbleEvent = {
   jobId: string;
@@ -45,10 +45,14 @@ export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
     // Job status is reported to the client from KV: a Workflow instance knows it is
     // "running" but not that it is "painting the photograph". `sticky` carries the fields
     // that outlive a single stage, so the library keeps its thumbnail as the job advances.
-    const sticky: Partial<JobRecord> = {};
-    const mark = (status: JobStatus, stage: string, extra: Partial<JobRecord> = {}) => {
-      Object.assign(sticky, extra);
-      return putJob(env, { id: p.jobId, name: p.name, model: p.model, status, stage, startedAt: event.timestamp.getTime(), stageAt: Date.now(), ...sticky });
+    // The record on disk is the source of those fields, not a closure: the engine re-runs
+    // this function from the top after every sleep, and a closure would forget the
+    // thumbnail. The stage clock only restarts when the status actually changes, so the
+    // progress bar keeps climbing across the six-second polls of one long generation.
+    const mark = async (status: JobStatus, stage: string, extra: Partial<JobRecord> = {}) => {
+      const prev = await getJob(env, p.jobId);
+      const stageAt = prev && prev.status === status ? prev.stageAt : Date.now();
+      await putJob(env, { ...prev, id: p.jobId, name: p.name, model: p.model, status, stage, startedAt: event.timestamp.getTime(), stageAt, ...extra });
     };
 
     try {
@@ -98,10 +102,14 @@ export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
       let world: MarbleWorld | undefined;
       let credits: number | undefined;
       for (let i = 0; i < MAX_POLLS; i++) {
-        const poll = await step.do(`poll Marble ${i}`, async () => {
+        // A poll is cheap and idempotent, so a slow or refused status read is asked again
+        // in seconds. The default retry policy backs off exponentially, which left the
+        // library frozen for minutes on the last status Marble had reported.
+        const poll = await step.do(`poll Marble ${i}`, { retries: { limit: 20, delay: "5 seconds", backoff: "constant" }, timeout: "1 minute" }, async () => {
           const op = (await marble.operation(operationId)) as MarbleOperation;
           const progress = op.metadata?.progress?.status;
-          if (progress) await mark("generating", `Marble: ${progress.toLowerCase().replace(/_/g, " ")}`);
+          // A failed status write must not fail the poll: the generation is unaffected.
+          if (progress) await mark("generating", `Marble: ${progress.toLowerCase().replace(/_/g, " ")}`).catch(() => {});
           if (op.error) throw new NonRetryableError(op.error.message ?? "generation failed");
           // A step's return value is serialized, and the world is an open-ended object
           // that Serializable<T> cannot vouch for, so carry it as JSON text. It is

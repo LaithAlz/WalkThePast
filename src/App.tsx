@@ -6,8 +6,8 @@ import { VoiceHistorian } from "./components/VoiceHistorian";
 import { KnowledgePortal } from "./components/KnowledgePortal";
 import { enrichCaption, type HistoricalEntity } from "./historian/entities";
 import type { EvidenceCounts, Verdict } from "./viewer/Viewer";
-import { deleteWorld, dismissJob, generateWorld, getCredits, imagineImage, listJobs, listWorlds, MODEL_CREDITS, writeGuide, type Job, type MarbleModel, type WorldImage } from "./lib/api";
-import { api, worlds as worldAsset, setSessionTokenReader } from "./lib/backend";
+import { deleteWorld, dismissJob, generateWorld, getCredits, imagineImage, jobImage, listJobs, listWorlds, MODEL_CREDITS, writeGuide, type Job, type MarbleModel, type WorldImage } from "./lib/api";
+import { worlds as worldAsset, setSessionTokenReader } from "./lib/backend";
 import { GuidePicker } from "./companion/GuidePicker";
 import type { GuideMood } from "./companion/Companion";
 import { prepPhoto, type PreppedImage } from "./lib/prep";
@@ -42,7 +42,9 @@ function useJobs(onReady?: () => void): Job[] {
       if (stop) return;
       let active = true;
       try {
-        const list = await listJobs();
+        const listed = await listJobs();
+        // The thumbnail needs the session token, so it arrives as a blob URL, cached per job.
+        const list = await Promise.all(listed.map(async (j) => (j.hasImage ? { ...j, image: (await jobImage(j.id)) ?? undefined } : j)));
         if (stop) return;
         setJobs(list);
         const nowReady = new Set(list.filter((j) => j.status === "ready").map((j) => j.id));
@@ -62,7 +64,7 @@ function useJobs(onReady?: () => void): Job[] {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return jobs;
 }
-const buildingWorlds = (jobs: Job[]): SampleWorld[] => jobs.filter((j) => j.status !== "ready").map((j) => ({ title: j.name, place: j.status === "error" ? "FAILED" : "BUILDING", date: j.status === "error" ? "" : `${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, evidence: j.status === "error" ? (j.error ?? "failed").slice(0, 70) : j.stage.toUpperCase(), image: j.hasImage ? api(`/api/worlds/jobs/${j.id}/image`) : images.mouffetard, note: j.status === "error" ? "This generation did not finish." : "Building in the background. You can leave this page.", quote: "", worldId: `job-${j.id}`, building: j.status === "error" ? undefined : j.progress, failed: j.status === "error" }));
+const buildingWorlds = (jobs: Job[]): SampleWorld[] => jobs.filter((j) => j.status !== "ready").map((j) => ({ title: j.name, place: j.status === "error" ? "FAILED" : "BUILDING", date: j.status === "error" ? "" : `${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, evidence: j.status === "error" ? (j.error ?? "failed").slice(0, 70) : j.stage.toUpperCase(), image: j.image ?? images.mouffetard, note: j.status === "error" ? "This generation did not finish." : "Building in the background. You can leave this page.", quote: "", worldId: `job-${j.id}`, building: j.status === "error" ? undefined : j.progress, failed: j.status === "error" }));
 const generatedWorld = (w: { id: string; name: string }): SampleWorld => ({ title: w.name, place: "GENERATED WORLD", date: "", evidence: "LIVE PROVENANCE", image: worldAsset(`/worlds/${w.id}/source.jpg`), note: "Built from a photograph through Marble and classified against it.", quote: "You’re standing where the photographer stood.", worldId: w.id });
 
 const images = {
@@ -287,7 +289,7 @@ function Library({ onNew, onOpen }: { onNew: () => void; onOpen: (worldId: strin
   const load = () => listWorlds().then((list) => setGenerated(list.filter((w) => !w.id.startsWith("marble-sample")))).catch(() => undefined);
   useEffect(() => { void load(); }, []);
   const jobs = useJobs(load);
-  const building: LibraryWorld[] = jobs.filter((j) => j.status !== "ready").map((j) => ({ id: `job-${j.id}`, title: j.name, detail: j.status === "error" ? (j.error ?? "failed").slice(0, 60) : `${j.stage.toUpperCase()} · ${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, image: j.hasImage ? api(`/api/worlds/jobs/${j.id}/image`) : images.mouffetard, building: j.status !== "error", failed: j.status === "error", pct: j.progress, remove: j.status === "error" ? () => dismissJob(j.id) : undefined }));
+  const building: LibraryWorld[] = jobs.filter((j) => j.status !== "ready").map((j) => ({ id: `job-${j.id}`, title: j.name, detail: j.status === "error" ? (j.error ?? "failed").slice(0, 60) : `${j.stage.toUpperCase()} · ${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, image: j.image ?? images.mouffetard, building: j.status !== "error", failed: j.status === "error", pct: j.progress, remove: j.status === "error" ? () => dismissJob(j.id) : undefined }));
   const ready: LibraryWorld[] = generated.map((w) => ({ id: w.id, title: w.name, detail: "GENERATED WORLD · WALKABLE", image: worldAsset(`/worlds/${w.id}/source.jpg`), open: () => onOpen(w.id, w.name), remove: () => deleteWorld(w.id) }));
   const all = [...building, ...ready];
   const stillBuilding = building.filter((w) => w.building).length;

@@ -4,7 +4,7 @@ import { api, worlds, authHeaders } from "./backend";
 
 export type MarbleModel = "marble-1.0-draft" | "marble-1.1" | "marble-1.1-plus";
 export type JobStatus = "queued" | "guide" | "painting" | "uploading" | "generating" | "downloading" | "ready" | "error";
-export type Job = { id: string; name: string; model: MarbleModel; status: JobStatus; stage: string; progress: number; elapsedS: number; startedAt: number; hasImage: boolean; worldId?: string; error?: string; credits?: number; guide?: string };
+export type Job = { id: string; name: string; model: MarbleModel; status: JobStatus; stage: string; progress: number; elapsedS: number; startedAt: number; hasImage: boolean; /** blob URL of the staged photograph, resolved client-side (see jobImage) */ image?: string; worldId?: string; error?: string; credits?: number; guide?: string };
 
 export type WorldIndexEntry = { id: string; name: string; createdAt?: string };
 /** Generated worlds on disk, newest first. */
@@ -18,6 +18,30 @@ export async function listWorlds(): Promise<WorldIndexEntry[]> {
 export async function listJobs(): Promise<Job[]> {
   const r = await fetch(api("/api/worlds/jobs"), { headers: await authHeaders(), cache: "no-store" });
   return r.ok ? ((await apiJson(r)) as Job[]) : [];
+}
+
+const jobImages = new Map<string, Promise<string | null>>();
+/**
+ * The photograph behind a building card, as a blob URL. The route sits behind the session
+ * like every other job route, and an <img> cannot send the token, so it is fetched here
+ * once per job and the URL is reused by every later poll.
+ */
+export function jobImage(id: string): Promise<string | null> {
+  let pending = jobImages.get(id);
+  if (!pending) {
+    pending = (async () => {
+      try {
+        const r = await fetch(api(`/api/worlds/jobs/${id}/image`), { headers: await authHeaders(), cache: "no-store" });
+        if (!r.ok) throw new Error(`job image ${r.status}`);
+        return URL.createObjectURL(await r.blob());
+      } catch {
+        jobImages.delete(id); // try again on the next poll rather than caching the failure
+        return null;
+      }
+    })();
+    jobImages.set(id, pending);
+  }
+  return pending;
 }
 
 /** Credit cost per generation (docs.worldlabs.ai/api/pricing), single image, non-pano. */
