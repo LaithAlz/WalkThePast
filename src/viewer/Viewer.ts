@@ -9,6 +9,7 @@
  */
 import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { FirstPersonControls, isTyping } from "./controls";
 import { WalkingMotor } from "./walking";
 import { loadCollider } from "./collider";
@@ -16,6 +17,8 @@ import type { Octree } from "three/addons/math/Octree.js";
 import { EvidenceLayer } from "./evidence";
 import { CLASS_NAMES, classifyPoint, computeProvenance, makeSourceCamera, type ProvenanceResult } from "./provenance";
 import { loadManifest, type CameraPose, type Convention, type WorldManifest } from "./world";
+import { createCompanion, type Companion, type GuideMood } from "../companion/Companion";
+import { loadSelectedGuide } from "../companion/store";
 
 export type ViewerStatus =
   | { kind: "idle" }
@@ -28,6 +31,13 @@ export type EvidenceCounts = [number, number, number];
 
 export type Verdict = { label: string; reason: string; cls: 0 | 1 | 2 };
 export type NavigationStatus = { mode: "loading" | "walking" | "ground-only" | "unavailable" | "fly"; message: string };
+
+/** The guide walking the world with you, if one was ever made. */
+export type GuideStatus =
+  | { kind: "none" }
+  | { kind: "loading" }
+  | { kind: "ready"; name: string }
+  | { kind: "error"; message: string };
 
 export type ViewerCallbacks = {
   onStatus?: (status: ViewerStatus) => void;
@@ -42,6 +52,7 @@ export type ViewerCallbacks = {
   /** The browser took or gave back the cursor. Includes releases nobody asked
    * us for — Escape, a tab switch — so the prompt tracks reality. */
   onLockChange?: (locked: boolean) => void;
+  onGuide?: (status: GuideStatus) => void;
 };
 
 /** OpenCV camera (+z forward, +y down) -> three.js camera (-z forward, +y up). */
@@ -83,6 +94,14 @@ export class Viewer {
   private collisionTree: Octree | null = null;
   private colliderAbort: AbortController | null = null;
   private loadToken = 0;
+
+  /** The guide, and the lights it needs. Splats carry their own lighting, so
+   * nothing is added to the scene until there is a lit mesh to put in it. */
+  private guide: Companion | null = null;
+  private guideAbort: AbortController | null = null;
+  private guideMood: GuideMood = "idle";
+  private lighting: THREE.Group | null = null;
+  private environment: THREE.Texture | null = null;
 
   private frameHandle = 0;
   private disposed = false;
@@ -148,6 +167,9 @@ export class Viewer {
       this.lastT = now;
 
       this.controls.update(dt);
+      // The guide walks the same collision mesh, one step behind the camera it
+      // is following, and holds still whenever the player does.
+      if (this.guide?.ready && !this.controls.paused) this.guide.update(dt, this.camera.position, this.controls.yaw);
       // Counted in drawn frames, not milliseconds: it has to land after Spark has actually
       // finished rebuilding the mesh, and frames are the thing that tracks that work.
       if (this.regenIn > 0 && --this.regenIn === 0) this.evidence.refresh();
@@ -192,6 +214,8 @@ export class Viewer {
     document.removeEventListener("keydown", this.onKeyDown);
     this.controls.dispose();
     this.colliderAbort?.abort();
+    this.clearGuide();
+    this.clearLighting();
     this.collisionTree?.clear();
     this.evidence.detach();
     this.clearEvidenceSplat();
@@ -205,6 +229,7 @@ export class Viewer {
     const token = ++this.loadToken;
     this.colliderAbort?.abort();
     this.colliderAbort = new AbortController();
+    this.clearGuide();
     this.controls.enabled = false;
     this.controls.setMotor(null);
     this.walking = null;
@@ -281,6 +306,10 @@ export class Viewer {
 
     await this.prepareWalking(manifest, token, this.colliderAbort.signal);
     if (token !== this.loadToken || this.disposed) return;
+    // After walking, because the guide shares the player's collision mesh and
+    // starts from the player's own spawn. Never awaited: a guide that is slow
+    // to load must not hold up a world that is ready to walk.
+    void this.mountGuide(manifest, token);
     if (wantsProvenance) {
       this.cb.onStatus?.({ kind: "loading", message: "classifying evidence" });
       await new Promise((r) => setTimeout(r, 30)); // let the UI repaint before a long sync pass
@@ -333,6 +362,9 @@ export class Viewer {
       this.camera.position.copy(this.walking.eye);
       this.controls.setEnabled(this.interactive);
       this.reportWalking();
+      // R is the way out of being stuck, and a guide left behind in the corner
+      // you were stuck in is half the problem still standing there.
+      this.guide?.spawn(this.camera.position, this.controls.yaw);
     }
   }
 
@@ -345,6 +377,119 @@ export class Viewer {
   releaseLook() { this.controls.releaseLock(); }
 
   setLookSensitivity(value: number) { this.controls.setSensitivity(value); }
+
+  /** What the historian is doing, which is what the guide does with its hands. */
+  setGuideMood(mood: GuideMood) {
+    this.guideMood = mood;
+    this.guide?.setMood(mood);
+  }
+
+  /** Make the guide wave, whatever else it was doing. */
+  greetWithGuide() { this.guide?.greet(); }
+
+  /**
+   * Swap in whichever guide is now selected, without reloading the world.
+   *
+   * The photograph you step through is the last moment before you are committed,
+   * so it is the right place to change your mind about who is coming with you.
+   */
+  reloadGuide() {
+    if (!this.manifest) return;
+    this.clearGuide();
+    this.cb.onGuide?.({ kind: "none" });
+    void this.mountGuide(this.manifest, this.loadToken);
+  }
+
+  /**
+   * Load the avatar made in the selfie step and stand it beside the player.
+   *
+   * Silent when there is none: a world without a guide is a world you walk
+   * alone, which is exactly what this app did before there were guides.
+   */
+  private async mountGuide(manifest: WorldManifest, token: number) {
+    if (!this.walking?.ready) return;
+    const abort = new AbortController();
+    this.guideAbort = abort;
+    let stored: Awaited<ReturnType<typeof loadSelectedGuide>> = null;
+    try {
+      stored = await loadSelectedGuide();
+    } catch {
+      stored = null;
+    }
+    if (token !== this.loadToken || this.disposed || abort.signal.aborted) return;
+    if (!stored) { this.cb.onGuide?.({ kind: "none" }); return; }
+
+    this.cb.onGuide?.({ kind: "loading" });
+    try {
+      const guide = await createCompanion(stored.glb, stored.name, this.collisionTree, {
+        radiusLimit: manifest.bounds?.radiusM ?? 0,
+        signal: abort.signal,
+      });
+      if (token !== this.loadToken || this.disposed || abort.signal.aborted) { guide?.dispose(); return; }
+      if (!guide) { this.cb.onGuide?.({ kind: "error", message: "That avatar has no skeleton this app can pose." }); return; }
+      if (!guide.spawn(this.camera.position, this.controls.yaw)) {
+        guide.dispose();
+        this.cb.onGuide?.({ kind: "error", message: "No floor beside you for the guide to stand on." });
+        return;
+      }
+      this.addLighting();
+      guide.attach(this.scene);
+      guide.setMood(this.guideMood);
+      this.guide = guide;
+      this.cb.onGuide?.({ kind: "ready", name: guide.name });
+    } catch (error) {
+      if (abort.signal.aborted || token !== this.loadToken || this.disposed) return;
+      console.warn("[guide] failed to load", error);
+      this.cb.onGuide?.({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** The lights stay: swapping guides would otherwise rebuild the environment
+   * map every time, and lights cost nothing in a scene with nothing lit in it. */
+  private clearGuide() {
+    this.guideAbort?.abort();
+    this.guideAbort = null;
+    this.guide?.dispose();
+    this.guide = null;
+  }
+
+  /**
+   * Lights, and only once there is something lit to point them at.
+   *
+   * A Gaussian splat carries the lighting it was photographed in, so the world
+   * needs none of this; a glTF avatar standing in it renders black without it.
+   */
+  private addLighting() {
+    if (this.lighting) return;
+    const group = new THREE.Group();
+    group.add(new THREE.AmbientLight(0xffffff, 1.05));
+    const key = new THREE.DirectionalLight(0xfff4e2, 1.45);
+    key.position.set(4, 9, 5);
+    group.add(key);
+    group.add(new THREE.HemisphereLight(0xbcd2ff, 0x40352a, 0.55));
+    this.scene.add(group);
+    this.lighting = group;
+    // Something for skin and cloth to reflect. Splats use their own shader and
+    // never read scene.environment, so this touches the avatar alone.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.environment = pmrem.fromScene(new RoomEnvironment()).texture;
+    this.scene.environment = this.environment;
+    this.scene.environmentIntensity = 0.42;
+    pmrem.dispose();
+  }
+
+  private clearLighting() {
+    if (this.lighting) {
+      this.scene.remove(this.lighting);
+      for (const light of this.lighting.children) (light as THREE.Light).dispose?.();
+      this.lighting = null;
+    }
+    if (this.environment) {
+      this.scene.environment = null;
+      this.environment.dispose();
+      this.environment = null;
+    }
+  }
 
 
   private reportWalking() {
