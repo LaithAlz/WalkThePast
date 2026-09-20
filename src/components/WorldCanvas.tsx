@@ -291,11 +291,11 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
           way out has to be a key. This says which one, and the prompt it turns
           into is the way back in — it lets the click through to the canvas. */}
       {inWorld && ready && !pauseMenu && !quizActive && (locked
-        ? <p className="look-hint"><kbd>X</kbd> free mouse · <kbd>P</kbd> pause</p>
+        ? <p className="look-hint"><kbd>X</kbd> free mouse · <kbd>P</kbd> pause{voice && <> · <kbd>N</kbd> narration</>}</p>
         : !quietUnlocked ? <div className="look-prompt" role="status">
             <p>
               <b>Click to look around</b>
-              <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> run · <kbd>P</kbd> pause</span>
+              <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> run · <kbd>P</kbd> pause{voice && <> · <kbd>N</kbd> narration on/off</>}</span>
 
               {voice && <em>Hold <kbd>Space</kbd> to talk to {guide.kind === "ready" ? guide.name : "your tutor"}</em>}
             </p>

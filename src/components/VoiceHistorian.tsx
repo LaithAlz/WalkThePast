@@ -105,7 +105,14 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
   useEffect(() => {
     const keyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (event.code !== "Space" || event.repeat || target?.matches("input, textarea, [contenteditable=true]")) return;
+      if (event.repeat || target?.matches("input, textarea, [contenteditable=true]")) return;
+      // N holds the narration alone; the world keeps walking. N again picks it back up.
+      if (event.code === "KeyN" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        if (keyboardState.current.active) togglePlaybackRef.current();
+        return;
+      }
+      if (event.code !== "Space") return;
       event.preventDefault();
       if (keyboardState.current.isPaused) return;
       spaceHeldRef.current = true;
@@ -132,6 +139,8 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
       window.removeEventListener("blur", release);
     };
   }, [connect, setMicrophoneMuted]);
+  const togglePlaybackRef = useRef(voice.togglePlayback);
+  useEffect(() => { togglePlaybackRef.current = voice.togglePlayback; }, [voice.togglePlayback]);
   const submitQuizAnswerRef = useRef(voice.submitQuizAnswer);
   useEffect(() => { submitQuizAnswerRef.current = voice.submitQuizAnswer; }, [voice.submitQuizAnswer]);
   useEffect(() => {
@@ -271,6 +280,7 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
         ) : <span className="voice-caption-word" key={`text-${index}`}>{part.text}</span>)}
       </blockquote>
       {voice.userCaption && <p className="voice-user-caption" aria-live="polite">YOU · {voice.userCaption}</p>}
+      {voice.isTransportPaused && <p className="voice-paused-note" role="status">NARRATION PAUSED · press <kbd>N</kbd> to resume</p>}
     </div>
   );
 }
