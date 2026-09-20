@@ -192,10 +192,18 @@ Vite · React 19 · TypeScript · Three.js `0.186` · Spark `2.2` (`@sparkjsdev/
 
 ## Deployment
 
-The production backend is a Cloudflare Worker (`worker/`, configured in
-`wrangler.toml`). It serves the built site from `dist/`, the `/api` routes that
+**Vercel serves the frontend; a Cloudflare Worker serves everything else.** The
+Worker (`worker/`, configured in `wrangler.toml`) supplies the `/api` routes that
 otherwise exist only inside Vite's dev and preview servers, and every generated
-world out of R2 — one origin, so the client's relative paths are unchanged.
+world out of R2. It can also serve the built site itself, so the same deployment
+works standalone if Vercel is ever dropped.
+
+`VITE_API_BASE` tells the frontend where that Worker is. Leave it **empty** for
+local dev — every path stays relative and hits Vite's own middleware and
+`public/worlds/`, so nothing about `npm run dev` changes. Set it on Vercel to the
+Worker's origin. Because the two then sit on different origins, the Worker
+allowlists callers through `ALLOWED_ORIGINS` (see `wrangler.toml`); entries may
+start with `*.` to admit Vercel's per-commit preview hostnames.
 
 A Marble generation runs for minutes and polls throughout, which outlives any
 single request, so it runs as a [Workflow](https://developers.cloudflare.com/workflows/)
