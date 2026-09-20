@@ -3,6 +3,7 @@ import { HISTORIAN_INSTRUCTIONS, HISTORIAN_TOOLS, runHistorianTool, sceneMetadat
 import type { HistoricalEntity } from "../historian/entities";
 import { TimedNarrationPlayer } from "./TimedNarrationPlayer";
 import { splitNarrationText } from "./narrationText";
+import { api, authHeaders } from "../lib/backend";
 
 export type VoiceStatus = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "error";
 type ResponseItem = {
@@ -310,8 +311,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     try {
       const player = new TimedNarrationPlayer({
         load: async (text, signal) => {
-          const response = await fetch("/api/realtime/narration", {
-            method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+          const response = await fetch(api("/api/realtime/narration"), {
+            method: "POST", signal, headers: { "Content-Type": "application/json", ...(await authHeaders()) }, body: JSON.stringify({ text }),
           });
           if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "Could not prepare synchronized speech.");
           return response.json();
@@ -332,7 +333,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       playerRef.current = player;
       if (pausedRef.current) player.pause();
       const [tokenResponse, imageResponse] = await Promise.all([
-        fetch("/api/realtime/session", { method: "POST", signal: controller.signal }),
+        fetch(api("/api/realtime/session"), { method: "POST", signal: controller.signal, headers: await authHeaders() }),
         fetch(contextRef.current.world.sourceImage, { signal: controller.signal }),
       ]);
       if (!current()) return;

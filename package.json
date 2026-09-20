@@ -8,10 +8,14 @@
   },
   "scripts": {
     "dev": "vite",
+    "prebuild": "wrangler types",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "deploy": "npm run build && rm -rf dist/worlds && wrangler deploy",
+    "worker:dev": "wrangler dev",
+    "worker:types": "wrangler types"
   },
   "dependencies": {
     "@clerk/react": "^6.16.1",
@@ -29,6 +33,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "wrangler": "^4.135.0"
   }
 }

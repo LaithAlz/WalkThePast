@@ -5,6 +5,8 @@
  */
 
 import type { WalkingOptions } from "./walking";
+// public/worlds/ in dev; the Worker's R2-backed /worlds/ when VITE_API_BASE names one.
+import { WORLDS_BASE as base } from "../lib/backend";
 
 /** Coordinate convention of the splat file itself. */
 export type Convention =
@@ -82,8 +84,6 @@ export interface WorldIndexEntry {
   id: string;
   name: string;
 }
-
-const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export function worldDir(id: string): string {
   return `${base}/worlds/${id}`;

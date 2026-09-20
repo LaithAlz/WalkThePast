@@ -234,6 +234,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
                   {canEnter ? "Walk into the photograph" : ready ? "Preparing the historian" : "Preparing the world"}
                 </button>
                 {canEnter && <span className="photo-enter">or press <kbd>Enter</kbd></span>}
+                {onExit && <button className="quiet-button photo-back" type="button" onClick={onExit}>← Back</button>}
               </div>
               {/* Controls live in the info card now, so the landing only has to
                   explain itself and show that something is still happening. */}

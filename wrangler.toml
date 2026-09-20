@@ -1,0 +1,58 @@
+# The production backend. `npm run build` emits the static site into dist/; this Worker
+# serves it and supplies the /api routes that otherwise exist only inside Vite's dev and
+# preview servers, plus the world assets out of R2.
+#
+# Secrets are NOT set here. Push them once with:
+#   npx wrangler secret put WORLDLAB_API_KEY
+#   npx wrangler secret put OPENAI_API_KEY
+#   npx wrangler secret put GEMINI_API_KEY      # optional
+name = "walk-the-past"
+main = "worker/index.ts"
+compatibility_date = "2025-09-01"
+# Buffer, for the WAV normaliser shared with server/narration.ts
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+# The built Vite site. run_worker_first keeps /api and /worlds on the Worker; everything
+# else falls through to the static assets, with SPA routing for client-side pages.
+[assets]
+directory = "dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/worlds/*"]
+
+# Every generated world: <worldId>/splat_*.spz, pano.png, collider.glb, source.*,
+# world.json, marble_world.json, and splat_full.ply when a generation asks for it.
+[[r2_buckets]]
+binding = "WORLDS"
+bucket_name = "walk-the-past-worlds"
+
+# Job status while a generation runs. A Durable Object rather than KV: the Workflow writes
+# progress from wherever it runs and the browser polls from wherever the reader is, and a
+# KV write takes up to 60s to become visible elsewhere. See worker/jobs.ts.
+[[durable_objects.bindings]]
+name = "JOB_STORE"
+class_name = "JobStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["JobStore"]
+
+# The Marble pipeline. A generation runs for minutes and polls throughout, which outlives
+# any single request, so it runs as a Workflow rather than a background promise.
+[[workflows]]
+name = "marble-pipeline"
+binding = "MARBLE_PIPELINE"
+class_name = "MarbleWorkflow"
+
+[vars]
+OPENAI_REALTIME_MODEL = "gpt-realtime-2.1"
+# The frontend is served by Vercel, so every /api and /worlds call is cross-origin.
+# "*." matches preview deployments, which get a fresh hostname per commit.
+ALLOWED_ORIGINS = "https://walk-the-past.vercel.app,*.vercel.app,http://localhost:5173,http://localhost:4173"
+# Clerk's Frontend API origin. Session tokens are verified against its JWKS, so every paid
+# route knows who is asking — the Worker's URL is in the public bundle. Not a secret: it is
+# derivable from the publishable key the frontend already ships.
+CLERK_ISSUER = "https://engaging-horse-1989.clerk.accounts.dev"
