@@ -138,6 +138,7 @@
    the click through to the canvas, and the hint appears only while the cursor
    is captured and so could not be clicked anyway. */
 .look-prompt { position: absolute; z-index: 5; inset: 0; display: grid; place-items: center; padding: 24px; pointer-events: none; }
+.explore-host:has(.explore-canvas:active) .look-prompt { display: none; }
 .look-prompt p { display: grid; gap: 11px; justify-items: center; margin: 0; padding: 20px 28px; border: 1px solid rgba(240,243,247,.16); border-radius: 15px; background: rgba(9,11,15,.66); box-shadow: 0 20px 56px rgba(0,0,0,.4); backdrop-filter: blur(16px); text-align: center; }
 .look-prompt b { color: #f7f4ec; font: 400 23px/1.2 'Instrument Serif', Georgia, serif; }
 .look-prompt span { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; align-items: center; color: rgba(240,243,247,.52); font: 9px 'IBM Plex Mono', monospace; letter-spacing: .12em; }
@@ -255,6 +256,20 @@
 .historian-quiz-options button { min-height: 86px; padding: 15px 16px; }
 .historian-quiz-options button span { font-size: 14px; }
 .historian-quiz > p { font-size: 12px; }
+.historian-quiz-heading > div { display: flex; align-items: center; gap: 14px; }
+.historian-quiz-heading button {
+  padding: 3px 0;
+  border: 0;
+  color: rgba(240,243,247,.72);
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.historian-quiz-heading button:hover { color: #fff; }
+.historian-quiz-heading button:focus-visible { outline: 1px solid #fff; outline-offset: 4px; }
 
 @media (max-width: 900px) {
   .explore-caption.has-voice:has(.historian-quiz) { width: calc(100vw - 36px); }

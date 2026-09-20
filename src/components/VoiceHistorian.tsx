@@ -11,12 +11,13 @@ type Props = {
   hue: "green" | "amber" | "purple";
   onEntity: (entity: HistoricalEntity) => void;
   onPresentationReady?: () => void | Promise<void>;
+  captureCurrentView?: () => string | null;
   paused?: boolean;
   showMediaControls?: boolean;
   onQuizActiveChange?: (active: boolean) => void;
 };
 
-export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, paused = false, showMediaControls = false, onQuizActiveChange }: Props) {
+export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, captureCurrentView, paused = false, showMediaControls = false, onQuizActiveChange }: Props) {
   const voice = useRealtimeHistorian({
     world: {
       id: world.worldId ?? "unknown",
@@ -29,8 +30,8 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
     evidenceEnabled: evidence,
     evidenceCounts: counts,
     verdict,
-  }, { beforeFirstPlay: onPresentationReady });
-  const { pause, resume, connect, setMicrophoneMuted } = voice;
+  }, { beforeFirstPlay: onPresentationReady, captureCurrentView });
+  const { pause, resume, connect, cancelQuiz, setMicrophoneMuted } = voice;
   const connectRef = useRef(connect);
   useEffect(() => { connectRef.current = connect; }, [connect]);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -106,6 +107,16 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
     window.addEventListener("keydown", answerWithLetter);
     return () => window.removeEventListener("keydown", answerWithLetter);
   }, [voice.quiz, voice.status, voice.isPaused]);
+  useEffect(() => {
+    if (!voice.quiz) return;
+    const cancelWithEscape = (event: KeyboardEvent) => {
+      if (event.code !== "Escape") return;
+      event.preventDefault();
+      cancelQuiz();
+    };
+    window.addEventListener("keydown", cancelWithEscape);
+    return () => window.removeEventListener("keydown", cancelWithEscape);
+  }, [voice.quiz, cancelQuiz]);
 
   return (
     <div className={`voice-historian${showMediaControls ? " has-media-controls" : ""}`}>
@@ -185,7 +196,10 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
         : ""}`} aria-labelledby={`quiz-question-${voice.quiz.id}`}>
         <div className="historian-quiz-heading">
           <span>KNOWLEDGE CHECK</span>
-          <small>{voice.quiz.questionNumber} / {voice.quiz.totalQuestions}</small>
+          <div>
+            <small>{voice.quiz.questionNumber} / {voice.quiz.totalQuestions}</small>
+            <button type="button" onClick={cancelQuiz}>Cancel quiz</button>
+          </div>
         </div>
         <h2 id={`quiz-question-${voice.quiz.id}`}>{voice.quiz.question}</h2>
         <div className="historian-quiz-options">

@@ -146,11 +146,10 @@ everything inside the render loop.
 - Camera control is standard pointer-lock mouselook: click the viewport to
   capture the cursor, then raw mouse deltas drive unbounded yaw and ±89° pitch
   with no smoothing, acceleration or auto-turn. WASD walks and strafes along
-  the camera's horizontal heading, and M gives the cursor back. Escape is never
-  bound, since the browser spends it leaving both pointer lock and fullscreen. M opens the pause menu,
+  the camera's horizontal heading, X gives the captured mouse back, and P opens the pause menu,
   which is the only in-world chrome: it carries the controls, a persisted look
-  sensitivity slider, the evidence toggle and the way out. Not Escape, which the
-  browser spends leaving fullscreen.
+  sensitivity slider, the evidence toggle and the way out. Escape retains its
+  native browser behavior and may also leave fullscreen.
   WASD/arrows walk, Shift runs and R resets. Collision meshes enable walls, gravity,
   stairs and slopes. Without one, the viewer explicitly shows a level-ground
   preview. See [Walking and collision setup](docs/walking.md) for the manifest

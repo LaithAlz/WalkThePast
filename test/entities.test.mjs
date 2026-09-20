@@ -42,3 +42,30 @@ test("explicit model entities override inferred references", () => {
   const linked = enrichCaption("Travel to Alexandria.", [explicit]).find((part) => part.entity);
   assert.equal(linked?.entity, explicit);
 });
+
+test("ordinary words are rejected even when the model incorrectly supplies them as entities", () => {
+  const mistaken = ["to", "you", "like"].map((label) => ({
+    id: `bad-${label}`, label, kind: "person",
+    articleUrl: `https://en.wikipedia.org/wiki/${label}`, summary: "Incorrect tool output.",
+  }));
+  const linked = enrichCaption("I would like to show you the temple.", mistaken).filter((part) => part.entity);
+  assert.deepEqual(linked, []);
+});
+
+test("long names stop before adjacent discourse words instead of joining them", () => {
+  const text = "Alexander the Great You can compare Temple of Karnak To other sites.";
+  const inferred = inferCaptionEntities(text);
+  assert.deepEqual(inferred.map(({ label }) => label), ["Alexander the Great", "Temple of Karnak"]);
+  const linked = enrichCaption(text).filter((part) => part.entity).map((part) => part.text);
+  assert.deepEqual(linked, ["Alexander the Great", "Temple of Karnak"]);
+});
+
+test("malformed long tool labels cannot absorb ordinary neighboring caption text", () => {
+  const malformed = {
+    id: "bad-joined", label: "Alexander the Great and you", kind: "person",
+    articleUrl: "https://en.wikipedia.org/wiki/Alexander_the_Great", summary: "Incorrectly joined output.",
+  };
+  const linked = enrichCaption("Alexander the Great and you can continue.", [malformed])
+    .filter((part) => part.entity).map((part) => part.text);
+  assert.deepEqual(linked, ["Alexander the Great"]);
+});

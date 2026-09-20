@@ -17,6 +17,7 @@ type Props = {
   onReady?: (ready: boolean) => void;
   suspended?: boolean;
   onSnapshot?: (dataUrl: string) => void;
+  onVisionCaptureReady?: (capture: (() => string) | null) => void;
   /** The pause menu is the only in-world chrome, so it carries the way out:
    * cursor-steering makes a button you must travel to hostile, and a paused
    * camera makes one you are already standing on safe. */
@@ -26,7 +27,7 @@ type Props = {
   quizActive?: boolean;
 };
 
-export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady = true, waitingMessage = "Preparing the experience…", onLandingHidden, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit, voice = false, onPaused, quizActive = false }: Props) {
+export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady = true, waitingMessage = "Preparing the experience…", onLandingHidden, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onVisionCaptureReady, onExit, voice = false, onPaused, quizActive = false }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLImageElement>(null);
@@ -42,6 +43,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
   // Pointer lock is the browser's to give and take, so the prompt tracks what
   // it reports rather than what we last asked for.
   const [locked, setLocked] = useState(false);
+  const [quietUnlocked, setQuietUnlocked] = useState(false);
   // Correct look speed depends on the user's mouse, so it is theirs to set and keep.
   const [sensitivity, setSensitivity] = useState(readSensitivity);
   const touchKeys = useRef(new Set<string>());
@@ -75,9 +77,9 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
   };
   // Callbacks change identity every render; keep them in a ref so the viewer is
   // built once rather than torn down and rebuilt on each parent render.
-  const sinks = useRef({ onCounts, onVerdict, onMode, onLandingHidden, resume });
+  const sinks = useRef({ onCounts, onVerdict, onMode, onLandingHidden, onVisionCaptureReady, resume });
   useEffect(() => {
-    sinks.current = { onCounts, onVerdict, onMode, onLandingHidden, resume };
+    sinks.current = { onCounts, onVerdict, onMode, onLandingHidden, onVisionCaptureReady, resume };
   });
 
   useEffect(() => {
@@ -106,7 +108,11 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
         setPauseMenu(true);
       },
       onResumeRequest: () => sinks.current.resume(),
-      onLockChange: setLocked,
+      onQuietUnlock: () => setQuietUnlocked(true),
+      onLockChange: (nextLocked) => {
+        setLocked(nextLocked);
+        if (nextLocked) setQuietUnlocked(false);
+      },
       onCounts: (counts) => sinks.current.onCounts?.(counts),
       onVerdict: (verdict) => sinks.current.onVerdict?.(verdict),
     });
@@ -116,6 +122,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
       sinks.current.onMode?.(m);
     };
     viewerRef.current = viewer;
+    sinks.current.onVisionCaptureReady?.(() => viewer.captureVisionSnapshot());
     // Read back rather than close over the state: this effect runs once, and it
     // runs before the effect that pushes later changes.
     viewer.setLookSensitivity(readSensitivity());
@@ -128,6 +135,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
     return () => {
       observer.disconnect();
       viewer.dispose();
+      sinks.current.onVisionCaptureReady?.(null);
       viewerRef.current = null;
       transitionRef.current = null;
     };
@@ -166,6 +174,10 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
     const viewer = viewerRef.current;
     if (!viewer || suspended) return;
     if (quizActive) {
+      // A quiz deliberately gives the cursor back to the visitor. Keep that
+      // release quiet after cancellation too; the canvas itself remains the
+      // click target whenever they are ready to look around again.
+      setQuietUnlocked(true);
       if (document.pointerLockElement) void document.exitPointerLock();
       viewer.setInteractive(false);
     } else {
@@ -223,7 +235,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
           ref={canvasRef}
           className="explore-canvas"
           tabIndex={0}
-          aria-label="3D world. Click to look around, then W A S D to move, Shift to run, R to reset. Press M to release the cursor and open the menu."
+          aria-label="3D world. Click to look around, then W A S D to move, Shift to run, R to reset. Press X to release the mouse or P to open the pause menu."
         />
         <img
           ref={overlayRef}
@@ -258,14 +270,14 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
           way out has to be a key. This says which one, and the prompt it turns
           into is the way back in — it lets the click through to the canvas. */}
       {inWorld && ready && !pauseMenu && !quizActive && (locked
-        ? <p className="look-hint"><kbd>M</kbd> free the cursor</p>
-        : <div className="look-prompt" role="status">
+        ? <p className="look-hint"><kbd>X</kbd> free mouse · <kbd>P</kbd> pause</p>
+        : !quietUnlocked ? <div className="look-prompt" role="status">
             <p>
               <b>Click to look around</b>
-              <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> run · <kbd>M</kbd> release the cursor</span>
+              <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> run · <kbd>P</kbd> pause</span>
               {voice && <em>Hold <kbd>Space</kbd> to talk to your tutor</em>}
             </p>
-          </div>)}
+          </div> : null)}
       {canWalk && <div className="walking-touch" aria-label="Walking controls">
         {([['forward', '↑', 'Walk forward'], ['left', '←', 'Step left'], ['back', '↓', 'Walk back'], ['right', '→', 'Step right']] as const).map(([key, label, description]) => <button
           key={key} className={`walk-${key}`} aria-label={description}
@@ -286,9 +298,9 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
             <div><dt>W A S D</dt><dd>Move</dd></div>
             <div><dt>Mouse</dt><dd>Look</dd></div>
             <div><dt>Shift</dt><dd>Run</dd></div>
-            <div><dt>M</dt><dd>Free the cursor</dd></div>
+            <div><dt>X</dt><dd>Free mouse</dd></div>
             {voice && <div><dt>Space</dt><dd>Hold to talk</dd></div>}
-            <div><dt>M</dt><dd>This menu</dd></div>
+            <div><dt>P</dt><dd>This menu</dd></div>
             <div><dt>R</dt><dd>Reset position</dd></div>
             <div><dt>E</dt><dd>Evidence</dd></div>
             <div><dt>Tab</dt><dd>Hold for photo</dd></div>

@@ -344,6 +344,9 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   // voice lives beside the canvas, not inside it.
   const [worldPaused, setWorldPaused] = useState(false);
   const [quizActive, setQuizActive] = useState(false);
+  const visionCaptureRef = useRef<(() => string) | null>(null);
+  const setVisionCapture = useCallback((capture: (() => string) | null) => { visionCaptureRef.current = capture; }, []);
+  const captureCurrentView = useCallback(() => visionCaptureRef.current?.() ?? null, []);
   // "photo" until the landing has been stepped through, so the in-world chrome
   // does not render on top of the photograph.
   const [mode, setMode] = useState<Mode>("photo");
@@ -395,7 +398,7 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   const caption = evidence && verdict ? verdict.reason : evidence ? "You're looking at a wall the camera never saw. Its height comes from the building opposite." : world.quote;
 
   return <main className={`explore-page ${evidence ? "evidence-mode" : ""} ${suspended ? "is-suspended" : ""}`}>
-    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} entryReady={historianReady} waitingMessage="CONNECTING TO OPENAI…" onLandingHidden={finishLandingFade} onCounts={setCounts} onVerdict={setVerdict} onMode={setMode} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} onExit={onExit} voice={voice} onPaused={setWorldPaused} quizActive={quizActive} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
+    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} entryReady={historianReady} waitingMessage="CONNECTING TO OPENAI…" onLandingHidden={finishLandingFade} onCounts={setCounts} onVerdict={setVerdict} onMode={setMode} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} onVisionCaptureReady={setVisionCapture} onExit={onExit} voice={voice} onPaused={setWorldPaused} quizActive={quizActive} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
     <div className="explore-vignette" />
     {evidence && !live && <div className="evidence-map" />}
     {evidence && !live && <div className="frustum"><span>ORIGINAL PLATE — {world.date} · 6.4 M BEHIND YOU</span><i /><b /></div>}
@@ -404,7 +407,7 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
       <Brand light sceneName={world.title} />
       {/* A flat photograph has no camera to steer, so a corner button is safe
           here. A live world does, and the trip to the corner costs you your
-          bearings — there, press M for the pause menu instead. */}
+          bearings — there, press P for the pause menu instead. */}
       {!live && <div className="explore-info">
         <button className="explore-info-trigger" type="button" aria-label="World information and controls" aria-expanded={infoOpen} onClick={() => setInfoOpen((open) => !open)}>
           <span aria-hidden="true">i</span>
@@ -423,7 +426,7 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
     {evidence && <aside className="legend"><p>EVIDENCE · {world.title.toUpperCase()}</p><span><i className="green" />SOURCE-VISIBLE · {share(2, world.evidence.split(" ")[0])}</span><span><i className="amber" />OCCLUDED · INFERRED · {share(1, "34%")}</span><span><i className="purple" />UNSUPPORTED · {share(0, "25%")}</span></aside>}
     {(!live || (splatReady && (mode === "world" || prepareVoice))) && (
       <div className={`explore-caption ${voice ? "has-voice" : ""} ${mode !== "world" && hiddenLandingWorld !== historianWorld && live ? "is-preparing" : ""}`} aria-hidden={mode !== "world" && hiddenLandingWorld !== historianWorld && live}>
-        {voice ? <VoiceHistorian world={world} evidence={evidence} counts={counts} verdict={verdict} hue={hue} onEntity={openEntity} onPresentationReady={prepareVoice ? beginHistorianPresentation : undefined} paused={!!entity || worldPaused} onQuizActiveChange={setQuizActive} /> : <><Historian hue={hue} state={speaking ? "listening" : "idle"} /><blockquote>“<EntityCaption text={caption} onEntity={openEntity} />”</blockquote></>}
+        {voice ? <VoiceHistorian world={world} evidence={evidence} counts={counts} verdict={verdict} hue={hue} onEntity={openEntity} onPresentationReady={prepareVoice ? beginHistorianPresentation : undefined} captureCurrentView={captureCurrentView} paused={!!entity || worldPaused} onQuizActiveChange={setQuizActive} /> : <><Historian hue={hue} state={speaking ? "listening" : "idle"} /><blockquote>“<EntityCaption text={caption} onEntity={openEntity} />”</blockquote></>}
         <p>{[world.place, world.date].filter(Boolean).join(" · ")}</p>
       </div>
     )}

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import { isPlausibleEntityName } from "../src/historian/entities.ts";
 
 function compile(filename) {
   return ts.transpileModule(readFileSync(new URL(filename, import.meta.url), "utf8"), {
@@ -20,7 +21,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-async function createHistorian({ blockedPlayback = false } = {}) {
+async function createHistorian({ blockedPlayback = false, captureCurrentView } = {}) {
   const slots = [], effects = [], sent = [], audios = [], requests = [], revoked = [];
   const frames = new Map();
   let cursor = 0, dirty = true, value, serial = 0, peer, responseId = "opening", received = "";
@@ -116,6 +117,7 @@ async function createHistorian({ blockedPlayback = false } = {}) {
         sceneMetadata: () => "Fixture scene", runHistorianTool: () => ({ status: "linked" }),
       };
       if (name === "./narrationText") return splitterExports;
+      if (name === "../historian/entities") return { isPlausibleEntityName };
       if (name === "./TimedNarrationPlayer") return {
         TimedNarrationPlayer: class extends playerExports.TimedNarrationPlayer {
           constructor(options) {
@@ -154,7 +156,7 @@ async function createHistorian({ blockedPlayback = false } = {}) {
   function flush() {
     for (let renders = 0; dirty || effects.length; renders += 1) {
       assert.ok(renders < 100, "hook settles after state updates");
-      if (dirty) { dirty = false; cursor = 0; value = exports.useRealtimeHistorian(context); }
+      if (dirty) { dirty = false; cursor = 0; value = exports.useRealtimeHistorian(context, { captureCurrentView }); }
       for (const effect of effects.splice(0)) effect();
     }
   }
@@ -226,6 +228,21 @@ const opening = "Giza holds great pyramids and ancient temples.";
 const link = (callId, label = "Giza") => ({
   type: "function_call", id: "item-" + callId, name: "linkHistoricalEntity", call_id: callId,
   arguments: JSON.stringify({ label, kind: "site", articleUrl: "https://en.wikipedia.org/wiki/Giza", summary: "A historical site." }),
+});
+
+test("current-view tool attaches a fresh camera still before continuing", async (t) => {
+  const still = "data:image/jpeg;base64,current-camera-view";
+  const f = await createHistorian({ captureCurrentView: () => still }); t.after(() => f.cleanup());
+  f.event("response.created", { response: { id: "view-question", status: "in_progress", output: [] } });
+  f.event("response.function_call_arguments.done", {
+    name: "inspectCurrentView", call_id: "view-call", arguments: "{}",
+  });
+  f.finishResponse();
+  const output = f.sent.find((event) => event.item?.type === "function_call_output" && event.item.call_id === "view-call");
+  assert.match(output.item.output, /current_view_attached/);
+  const imageMessage = f.sent.find((event) => event.item?.content?.some((part) => part.image_url === still));
+  assert.equal(imageMessage.item.content[0].image_url, still);
+  assert.equal(f.creates().at(-1).response.output_modalities[0], "text", "the model continues after receiving the still");
 });
 
 test("an article return resumes the same buffered audio and exact caption playhead", async (t) => {
@@ -455,6 +472,23 @@ test("final quiz feedback offers a natural historical continuation", async (t) =
   const instructions = f.creates().at(-1).response.instructions;
   assert.match(instructions, /most relevant next historical subject/i);
   assert.match(instructions, /explore the current subject more deeply/i);
+});
+
+test("canceling a quiz clears it and immediately speaks a normal-session transition", async (t) => {
+  const f = await createHistorian(); t.after(() => f.cleanup());
+  f.event("response.created", { response: { id: "cancel-quiz-tool", status: "in_progress", output: [] } });
+  f.event("response.function_call_arguments.done", quiz("cancel-quiz"));
+  f.finishResponse();
+  const createsBeforeCancel = f.creates().length;
+  f.act((voice) => voice.cancelQuiz());
+  assert.equal(f.voice.quiz, null);
+  assert.equal(f.voice.status, "thinking");
+  assert.equal(f.creates().length, createsBeforeCancel + 1, "cancel requests feedback immediately instead of waiting for guided continuation");
+  assert.match(f.creates().at(-1).response.instructions, /Let's jump back in where we left off/);
+  assert.match(f.creates().at(-1).response.instructions, /Do not call presentQuizQuestion/);
+  const cancellation = f.sent.find((event) => event.type === "conversation.item.create"
+    && event.item?.type === "message" && event.item?.content?.[0]?.text?.includes("canceled the quiz"));
+  assert.ok(cancellation, "the conversation remembers that the visitor canceled the quiz");
 });
 
 test("visitor speech or a paused tour cancels automatic continuation", async (t) => {

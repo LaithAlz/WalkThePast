@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HISTORIAN_INSTRUCTIONS, HISTORIAN_TOOLS, runHistorianTool, sceneMetadata, type HistorianSceneContext } from "./historian";
-import type { HistoricalEntity } from "../historian/entities";
+import { isPlausibleEntityName, type HistoricalEntity } from "../historian/entities";
 import { TimedNarrationPlayer } from "./TimedNarrationPlayer";
 import { splitNarrationText } from "./narrationText";
 
@@ -33,8 +33,10 @@ const ICE_RECOVERY_MS = 8000;
 /** Let the visitor answer before the guided narrative advances on its own. */
 const GUIDED_PAUSE_MS = 7000;
 
-export function useRealtimeHistorian(context: HistorianSceneContext, options: { beforeFirstPlay?: () => void | Promise<void> } = {}) {
+export function useRealtimeHistorian(context: HistorianSceneContext, options: { beforeFirstPlay?: () => void | Promise<void>; captureCurrentView?: () => string | null } = {}) {
   const beforeFirstPlay = options.beforeFirstPlay;
+  const captureCurrentViewRef = useRef(options.captureCurrentView);
+  useEffect(() => { captureCurrentViewRef.current = options.captureCurrentView; }, [options.captureCurrentView]);
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [caption, setCaption] = useState("");
   const [userCaption, setUserCaption] = useState("");
@@ -245,7 +247,14 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     let args: Record<string, unknown> = {};
     try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
     let output: unknown;
-    if (call.name === "presentQuizQuestion") {
+    let capturedView: string | null = null;
+    if (call.name === "inspectCurrentView") {
+      try { capturedView = captureCurrentViewRef.current?.() ?? null; }
+      catch (reason) { console.error("[historian] current-view capture failed", reason); }
+      output = capturedView
+        ? { status: "current_view_attached", instruction: "Analyze the input image in the next conversation item before answering." }
+        : { status: "unavailable", message: "The current camera view could not be captured. Do not guess what is visible." };
+    } else if (call.name === "presentQuizQuestion") {
       const nextQuiz = quizFromTool(callId, args);
       if (nextQuiz) {
         clearGuidedPause();
@@ -277,6 +286,18 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       output = runHistorianTool(call.name || "", args, contextRef.current);
     }
     send({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) } });
+    if (capturedView) {
+      send({
+        type: "conversation.item.create",
+        item: {
+          type: "message", role: "user",
+          content: [
+            { type: "input_image", image_url: capturedView },
+            { type: "input_text", text: "This is the fresh still captured from my current camera view. Use it to answer my immediately preceding question." },
+          ],
+        },
+      });
+    }
     // Parallel tool calls cause one continuation after the originating response ends.
     toolContinuationRef.current = true;
   }, [clearGuidedPause, send]);
@@ -305,6 +326,29 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       },
     });
   }, [clearGuidedPause, send]);
+
+  const cancelQuiz = useCallback(() => {
+    if (!quizRef.current) return;
+    quizRef.current = null;
+    setQuiz(null);
+    interruptNarration();
+    setUserCaption("");
+    setStatus("thinking");
+    send({
+      type: "conversation.item.create",
+      item: {
+        type: "message", role: "user",
+        content: [{ type: "input_text", text: "The visitor canceled the quiz. Do not continue it. Immediately acknowledge the cancellation and return to the normal historical conversation from before the quiz." }],
+      },
+    });
+    send({
+      type: "response.create",
+      response: {
+        output_modalities: ["text"],
+        instructions: "The visitor just canceled the quiz. Begin with exactly: Let's jump back in where we left off. Then immediately resume the historical thread from before the quiz in a natural, concise way. Do not mention quiz questions, scores, or the cancellation again. Do not call presentQuizQuestion.",
+      },
+    });
+  }, [interruptNarration, send]);
 
   const queueText = useCallback((event: ServerEvent, final: boolean) => {
     const key = (event.item_id ?? event.response_id) + ":" + (event.content_index ?? 0);
@@ -559,7 +603,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     }
   }, [beforeFirstPlay, disconnect, fail, handleEvent, scheduleGuidedContinuation, send]);
 
-  return { status, caption, userCaption, error, entities, quiz, isMicMuted, canToggleMic, canReplay, isPaused, isTransportPaused, replayLastSentence, submitQuizAnswer, setMicrophoneMuted, toggleMic, togglePlayback, connect, disconnect, pause, resume };
+  return { status, caption, userCaption, error, entities, quiz, isMicMuted, canToggleMic, canReplay, isPaused, isTransportPaused, replayLastSentence, submitQuizAnswer, cancelQuiz, setMicrophoneMuted, toggleMic, togglePlayback, connect, disconnect, pause, resume };
 }
 
 function quizFromTool(id: string, args: Record<string, unknown>): HistorianQuiz | null {
@@ -581,7 +625,7 @@ function historicalEntityFromTool(args: Record<string, unknown>): HistoricalEnti
   const label = typeof args.label === "string" ? args.label.trim() : "";
   const summary = typeof args.summary === "string" ? args.summary.trim() : "";
   const kind = args.kind;
-  if (!label || !summary || (kind !== "place" && kind !== "site" && kind !== "person" && kind !== "period")) return null;
+  if (!isPlausibleEntityName(label) || !summary || (kind !== "place" && kind !== "site" && kind !== "person" && kind !== "period")) return null;
   let articleUrl: URL;
   try { articleUrl = new URL(String(args.articleUrl)); } catch { return null; }
   if (articleUrl.protocol !== "https:" || !/(^|\.)wikipedia\.org$/i.test(articleUrl.hostname)) return null;
