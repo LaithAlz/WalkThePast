@@ -112,8 +112,27 @@ function listBuiltinGuides(): Promise<BuiltinSummary[]> {
   builtinCache ??= fetch(`${builtinBase()}/index.json`, { cache: "no-store" })
     .then((r) => (r.ok ? r.json() : []))
     .then((list: { id: string; name: string; file: string; portrait?: string }[]) => list.map((g) => ({ id: `${BUILTIN_PREFIX}${g.id}`, avatarId: g.id, name: g.name, portrait: g.portrait ? `${builtinBase()}/${g.portrait}` : undefined, createdAt: 0, file: g.file })))
+    .then(async (list) => { for (const g of list) if (!g.portrait) g.portrait = await builtinPortrait(g); return list; })
     .catch(() => []);
   return builtinCache;
+}
+
+/** A built-in guide without a portrait image gets one rendered from its model, once per browser. */
+async function builtinPortrait(g: BuiltinSummary): Promise<string | undefined> {
+  if (typeof document === "undefined") return undefined;
+  const key = `wtp.builtin.portrait.${g.avatarId}`;
+  const cached = read(key);
+  if (cached) return cached;
+  try {
+    const r = await fetch(`${builtinBase()}/${g.file}`);
+    if (!r.ok) return undefined;
+    const { renderPortrait } = await import("./avaturn.ts");
+    const portrait = await renderPortrait(await r.arrayBuffer());
+    write(key, portrait);
+    return portrait;
+  } catch {
+    return undefined;
+  }
 }
 const isBuiltin = (id: string) => id.startsWith(BUILTIN_PREFIX);
 
