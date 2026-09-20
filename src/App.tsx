@@ -340,6 +340,9 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   const [readyHistorianWorld, setReadyHistorianWorld] = useState<string | null>(null);
   const [hiddenLandingWorld, setHiddenLandingWorld] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  // The pause menu holds the historian too, so it has to reach up here: the
+  // voice lives beside the canvas, not inside it.
+  const [worldPaused, setWorldPaused] = useState(false);
   // "photo" until the landing has been stepped through, so the in-world chrome
   // does not render on top of the photograph.
   const [mode, setMode] = useState<Mode>("photo");
@@ -391,45 +394,35 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
   const caption = evidence && verdict ? verdict.reason : evidence ? "You're looking at a wall the camera never saw. Its height comes from the building opposite." : world.quote;
 
   return <main className={`explore-page ${evidence ? "evidence-mode" : ""} ${suspended ? "is-suspended" : ""}`}>
-    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} entryReady={historianReady} waitingMessage="CONNECTING TO OPENAI…" onLandingHidden={finishLandingFade} onCounts={setCounts} onVerdict={setVerdict} onMode={setMode} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
+    {live ? <WorldCanvas worldId={world.worldId!} evidence={evidence} autoEnter={autoEnter} entryReady={historianReady} waitingMessage="CONNECTING TO OPENAI…" onLandingHidden={finishLandingFade} onCounts={setCounts} onVerdict={setVerdict} onMode={setMode} onReady={setSplatReady} suspended={suspended} onSnapshot={acceptSnapshot} onExit={onExit} voice={voice} onPaused={setWorldPaused} /> : <img className="explore-photo" src={world.image} alt={`${world.title}, ${world.place}`} />}
     <div className="explore-vignette" />
     {evidence && !live && <div className="evidence-map" />}
     {evidence && !live && <div className="frustum"><span>ORIGINAL PLATE — {world.date} · 6.4 M BEHIND YOU</span><i /><b /></div>}
     <div className="crosshair" />
     <div className="explore-top">
       <Brand light sceneName={world.title} />
-      <div className="explore-info">
+      {/* A flat photograph has no camera to steer, so a corner button is safe
+          here. A live world does, and the trip to the corner costs you your
+          bearings — there, press M for the pause menu instead. */}
+      {!live && <div className="explore-info">
         <button className="explore-info-trigger" type="button" aria-label="World information and controls" aria-expanded={infoOpen} onClick={() => setInfoOpen((open) => !open)}>
           <span aria-hidden="true">i</span>
         </button>
         {infoOpen && <div className="explore-info-card">
           <p>World controls</p>
           <dl className="explore-shortcuts">
-            {live ? <>
-              <div><dt>W A S D</dt><dd>Move</dd></div>
-              <div><dt>Shift</dt><dd>Run</dd></div>
-              <div><dt>Mouse</dt><dd>Turn</dd></div>
-              <div><dt>Scroll</dt><dd>Turn further</dd></div>
-              {voice && <div><dt>Space</dt><dd>Hold to talk</dd></div>}
-              <div><dt>R</dt><dd>Reset position</dd></div>
-              <div><dt>Esc</dt><dd>Pause menu</dd></div>
-              <div><dt>E</dt><dd>Evidence</dd></div>
-              <div><dt>Tab</dt><dd>Hold for photo</dd></div>
-              <div><dt>V</dt><dd>Image wipe</dd></div>
-            </> : <>
-              <div><dt>Space</dt><dd>Hold to talk</dd></div>
-              <div><dt>E</dt><dd>Evidence</dd></div>
-            </>}
+            <div><dt>Space</dt><dd>Hold to talk</dd></div>
+            <div><dt>E</dt><dd>Evidence</dd></div>
           </dl>
           <button type="button" onClick={() => { onToggleEvidence(); setInfoOpen(false); }}>{evidence ? "Exit evidence" : "Evidence mode"}</button>
           <button type="button" onClick={onExit}>Leave world</button>
         </div>}
-      </div>
+      </div>}
     </div>
     {evidence && <aside className="legend"><p>EVIDENCE · {world.title.toUpperCase()}</p><span><i className="green" />SOURCE-VISIBLE · {share(2, world.evidence.split(" ")[0])}</span><span><i className="amber" />OCCLUDED · INFERRED · {share(1, "34%")}</span><span><i className="purple" />UNSUPPORTED · {share(0, "25%")}</span></aside>}
     {(!live || (splatReady && (mode === "world" || prepareVoice))) && (
       <div className={`explore-caption ${voice ? "has-voice" : ""} ${mode !== "world" && hiddenLandingWorld !== historianWorld && live ? "is-preparing" : ""}`} aria-hidden={mode !== "world" && hiddenLandingWorld !== historianWorld && live}>
-        {voice ? <VoiceHistorian world={world} evidence={evidence} counts={counts} verdict={verdict} hue={hue} onEntity={openEntity} onPresentationReady={prepareVoice ? beginHistorianPresentation : undefined} paused={!!entity} /> : <><Historian hue={hue} state={speaking ? "listening" : "idle"} /><blockquote>“<EntityCaption text={caption} onEntity={openEntity} />”</blockquote></>}
+        {voice ? <VoiceHistorian world={world} evidence={evidence} counts={counts} verdict={verdict} hue={hue} onEntity={openEntity} onPresentationReady={prepareVoice ? beginHistorianPresentation : undefined} paused={!!entity || worldPaused} /> : <><Historian hue={hue} state={speaking ? "listening" : "idle"} /><blockquote>“<EntityCaption text={caption} onEntity={openEntity} />”</blockquote></>}
         <p>{[world.place, world.date].filter(Boolean).join(" · ")}</p>
       </div>
     )}

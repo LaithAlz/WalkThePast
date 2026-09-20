@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Viewer, type EvidenceCounts, type Verdict, type ViewerStatus, type NavigationStatus } from "../viewer/Viewer";
+import { DEFAULT_SENSITIVITY } from "../viewer/controls";
 import { PhotoTransition, type Mode } from "../viewer/transition";
 import type { WorldManifest } from "../viewer/world";
 
@@ -16,10 +17,15 @@ type Props = {
   onReady?: (ready: boolean) => void;
   suspended?: boolean;
   onSnapshot?: (dataUrl: string) => void;
+  /** The pause menu is the only in-world chrome, so it carries the way out:
+   * cursor-steering makes a button you must travel to hostile, and a paused
+   * camera makes one you are already standing on safe. */
   onExit?: () => void;
+  voice?: boolean;
+  onPaused?: (paused: boolean) => void;
 };
 
-export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady = true, waitingMessage = "Preparing the experience…", onLandingHidden, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit }: Props) {
+export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady = true, waitingMessage = "Preparing the experience…", onLandingHidden, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit, voice = false, onPaused }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLImageElement>(null);
@@ -32,6 +38,9 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
   const [navigation, setNavigation] = useState<NavigationStatus>({ mode: "loading", message: "Preparing walking…" });
   const [pauseMenu, setPauseMenu] = useState(false);
   const [entering, setEntering] = useState(false);
+  // Pointer lock is the browser's to give and take, so the prompt tracks what
+  // it reports rather than what we last asked for.
+  const [locked, setLocked] = useState(false);
   // Correct look speed depends on the user's mouse, so it is theirs to set and keep.
   const [sensitivity, setSensitivity] = useState(readSensitivity);
   const touchKeys = useRef(new Set<string>());
@@ -60,12 +69,9 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
   const resume = () => {
     setPauseMenu(false);
     viewerRef.current?.setPaused(false);
+    // Still inside the click that opened this, so the browser accepts it.
+    viewerRef.current?.requestLook();
   };
-  const reset = () => {
-    viewerRef.current?.resetToPhotographer();
-    resume();
-  };
-
   // Callbacks change identity every render; keep them in a ref so the viewer is
   // built once rather than torn down and rebuilt on each parent render.
   const sinks = useRef({ onCounts, onVerdict, onMode, onLandingHidden, resume });
@@ -99,6 +105,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
         setPauseMenu(true);
       },
       onResumeRequest: () => sinks.current.resume(),
+      onLockChange: setLocked,
       onCounts: (counts) => sinks.current.onCounts?.(counts),
       onVerdict: (verdict) => sinks.current.onVerdict?.(verdict),
     });
@@ -132,6 +139,10 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
   useEffect(() => {
     onReady?.(status.kind === "ready");
   }, [status, onReady]);
+
+  useEffect(() => {
+    onPaused?.(pauseMenu);
+  }, [pauseMenu, onPaused]);
 
   useEffect(() => {
     viewerRef.current?.setEvidenceMode(evidence);
@@ -200,7 +211,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
           ref={canvasRef}
           className="explore-canvas"
           tabIndex={0}
-          aria-label="3D world. Move the pointer or scroll to turn. Press Escape for the menu. Use W A S D or arrow keys to walk, Shift to run, R to reset."
+          aria-label="3D world. Click to look around, then W A S D to move, Shift to run, R to reset. Press M to release the cursor and open the menu."
         />
         <img
           ref={overlayRef}
@@ -231,9 +242,21 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
           </div>
         )}
       </div>
+      {/* While the cursor is captured nothing on screen can be clicked, so the
+          way out has to be a key. This says which one, and the prompt it turns
+          into is the way back in — it lets the click through to the canvas. */}
+      {inWorld && ready && !pauseMenu && (locked
+        ? <p className="look-hint"><kbd>M</kbd> free the cursor</p>
+        : <div className="look-prompt" role="status">
+            <p>
+              <b>Click to look around</b>
+              <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> run · <kbd>M</kbd> release the cursor</span>
+              {voice && <em>Hold <kbd>Space</kbd> to talk to your tutor</em>}
+            </p>
+          </div>)}
       {canWalk && <div className="walking-touch" aria-label="Walking controls">
-        {([['forward', '↑'], ['left', '←'], ['back', '↓'], ['right', '→']] as const).map(([key, label]) => <button
-          key={key} className={`walk-${key}`} aria-label={`Walk ${key}`}
+        {([['forward', '↑', 'Walk forward'], ['left', '←', 'Step left'], ['back', '↓', 'Walk back'], ['right', '→', 'Step right']] as const).map(([key, label, description]) => <button
+          key={key} className={`walk-${key}`} aria-label={description}
           onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); updateTouch(key, true); }}
           onPointerUp={() => updateTouch(key, false)} onPointerCancel={() => updateTouch(key, false)}
           onLostPointerCapture={() => updateTouch(key, false)} onBlur={() => updateTouch(key, false)}
@@ -245,7 +268,20 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
         <section className="walk-pause-menu" role="dialog" aria-modal="true" aria-labelledby="walk-pause-title">
           <p className="eyebrow">WALK THE PAST</p>
           <h2 id="walk-pause-title">Paused</h2>
-          <p>Looking and walking are paused. Resume to carry on exploring.</p>
+          <p>Walking, looking and the historian are all held. Resume to carry on where you left off.</p>
+          <dl className="walk-shortcuts">
+            <div><dt>Click</dt><dd>Look around</dd></div>
+            <div><dt>W A S D</dt><dd>Move</dd></div>
+            <div><dt>Mouse</dt><dd>Look</dd></div>
+            <div><dt>Shift</dt><dd>Run</dd></div>
+            <div><dt>M</dt><dd>Free the cursor</dd></div>
+            {voice && <div><dt>Space</dt><dd>Hold to talk</dd></div>}
+            <div><dt>M</dt><dd>This menu</dd></div>
+            <div><dt>R</dt><dd>Reset position</dd></div>
+            <div><dt>E</dt><dd>Evidence</dd></div>
+            <div><dt>Tab</dt><dd>Hold for photo</dd></div>
+            <div><dt>V</dt><dd>Image wipe</dd></div>
+          </dl>
           <label className="walk-sensitivity">
             <span>Look sensitivity<b>{sensitivity.toFixed(2)}×</b></span>
             <input
@@ -255,10 +291,8 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
           </label>
           <div className="walk-pause-actions">
             <button className="button" onClick={resume}>Resume walking</button>
-            <button className="button ghost" onClick={reset}>Reset position</button>
             {onExit && <button className="quiet-button" onClick={onExit}>Leave world</button>}
           </div>
-          <small>ESC MENU · WASD WALK · SHIFT RUN</small>
         </section>
       </div>}
       {status.kind !== "ready" && (mode !== "photo" || status.kind === "error") && <div role="status" className={`explore-loading${status.kind === "error" ? " is-error" : ""}`}>{describe(status)}</div>}
@@ -266,14 +300,18 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
   );
 }
 
-const SENSITIVITY_KEY = "wtp:look-sensitivity";
+// Versioned: the slider persists on mount, so anyone who has opened the app
+// already has the old default stored and would never see a new one. Bumping
+// the key retires those saved values along with the controller they were
+// chosen for — mouselook deltas are a different scale from cursor steering.
+const SENSITIVITY_KEY = "wtp:look-sensitivity:pointerlock";
 
 function readSensitivity(): number {
   try {
     const stored = Number(localStorage.getItem(SENSITIVITY_KEY));
     if (Number.isFinite(stored) && stored > 0) return Math.min(3, Math.max(0.25, stored));
   } catch { /* private mode */ }
-  return 1;
+  return DEFAULT_SENSITIVITY;
 }
 
 function describe(status: ViewerStatus): string {
