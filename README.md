@@ -177,8 +177,8 @@ Pause holds both the audio position and captions, and replay uses the cached cli
 This intentionally adds buffering before speech and a speech/transcription API
 request per sentence. Keep `OPENAI_API_KEY` server-side in `.env.local`; the key
 must have access to those models as well as the configured Realtime model. Both
-API routes run in Vite dev and preview; a static deployment needs equivalent
-server routes. Word boundaries are transcription estimates, so this removes
+API routes run in Vite dev and preview; in production the Worker serves them
+(see [Deployment](#deployment)). Word boundaries are transcription estimates, so this removes
 network-induced drift without promising phoneme-perfect alignment. If spoken
 words cannot be matched to the original text, playback stops with a retry message
 instead of falling back to invented timestamps. See the official
@@ -189,3 +189,39 @@ documentation. Run `npm test` for playback, network, interruption, and timing ch
 ## Stack
 
 Vite · React 19 · TypeScript · Three.js `0.186` · Spark `2.2` (`@sparkjsdev/spark`)
+
+## Deployment
+
+The production backend is a Cloudflare Worker (`worker/`, configured in
+`wrangler.toml`). It serves the built site from `dist/`, the `/api` routes that
+otherwise exist only inside Vite's dev and preview servers, and every generated
+world out of R2 — one origin, so the client's relative paths are unchanged.
+
+A Marble generation runs for minutes and polls throughout, which outlives any
+single request, so it runs as a [Workflow](https://developers.cloudflare.com/workflows/)
+(`worker/marbleWorkflow.ts`) rather than a background promise. Each stage is a
+step, so a failure retries from that stage instead of repeating a paid
+generation. Two platform limits shape the design: a step's return value and a
+workflow's event payload are both capped at 1 MiB, so splats stream straight
+into R2 inside their step, and uploaded photographs are staged in R2 and passed
+to the workflow by key.
+
+Worlds are stored under `<worldId>/` exactly as the Vite bridge laid them out on
+disk — `splat_*.spz` (and `splat_full.ply` when a generation asks for it),
+`pano.png`, `collider.glb`, `source.*`, `world.json` — so `world.json` keeps its
+relative asset paths and `resolveAsset()` in `src/viewer/world.ts` resolves them
+against R2 in production and `public/worlds/` in dev without a code change.
+
+First deploy:
+
+```sh
+# R2 must be enabled for the account first, in the Cloudflare dashboard
+npx wrangler r2 bucket create walk-the-past-worlds
+npx wrangler secret put WORLDLAB_API_KEY
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put GEMINI_API_KEY   # optional
+npm run deploy
+```
+
+`npm run deploy` builds the site and deploys the Worker. `npm run worker:dev`
+runs the Worker locally against the same bindings.
