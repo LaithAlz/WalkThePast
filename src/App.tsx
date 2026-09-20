@@ -174,11 +174,12 @@ function Chip({ color, text }: { color: "green" | "amber" | "purple"; text: stri
  * Sign-in and sign-up, rendered by Clerk.
  *
  * This was a hand-written flow against Clerk's resources, and it silently dropped people
- * at several points: bot protection had no element to mount its widget in, the OAuth
- * redirect came back to a page that finished nothing, and each unhandled status just fell
- * through to no branch at all. Clerk's own components handle the CAPTCHA, the OAuth round
- * trip, email codes, device trust and account transfers, so none of that is ours to keep
- * correct. The page around them stays as it was.
+ * at several points: bot protection had no element to mount its widget in, and each
+ * unhandled status fell through to no branch at all. Clerk's own components handle the
+ * CAPTCHA, email codes, device trust and account transfers, so none of that is ours to
+ * keep correct. The page around them stays as it was.
+ *
+ * Which sign-in methods appear here comes from the Clerk dashboard, not from this file.
  */
 function Auth({ mode, onBack, onModeChange }: { mode: AuthMode; onBack: () => void; onModeChange: (mode: AuthMode) => void }) {
   // Land in the library whether they signed in or just signed up.
