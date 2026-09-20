@@ -25,13 +25,80 @@ export const HISTORICAL_ENTITIES: HistoricalEntity[] = [
 
 export type CaptionPart = { text: string; entity?: HistoricalEntity };
 
-/** Longest-match caption enrichment. The catalogue is reviewed; unknown proper nouns stay plain text. */
+const CONNECTORS = new Set(["al", "bin", "da", "de", "del", "der", "di", "du", "la", "le", "of", "the", "van", "von"]);
+const SENTENCE_WORDS = new Set([
+  "a", "after", "although", "an", "and", "as", "at", "before", "built", "but", "during", "for", "from", "here",
+  "how", "if", "imagine", "in", "it", "its", "look", "many", "most", "near", "no", "now", "on", "once", "so", "some", "that",
+  "the", "their", "these", "they", "this", "those", "today", "welcome", "what", "when", "where", "which", "while",
+  "travel", "walking", "who", "why", "with", "would", "yes", "you", "your",
+]);
+const PERIOD_WORDS = /\b(?:age|century|dynasty|empire|era|kingdom|period|republic)\b/iu;
+const SITE_WORDS = /\b(?:abbey|acropolis|basilica|castle|cathedral|church|complex|fort|fortress|monument|mosque|museum|palace|plateau|pyramid|sphinx|temple|tomb|tower)\b/iu;
+const PLACE_WORDS = /\b(?:avenue|bay|boulevard|city|country|desert|district|island|lake|mount|mountain|ocean|park|province|river|road|sea|square|state|street|valley)\b/iu;
+const LOCATION_CUE = /\b(?:at|from|in|near|outside|through|to|within)\s+$/iu;
+
+function inferredKind(label: string, prefix: string): HistoricalEntity["kind"] {
+  if (PERIOD_WORDS.test(label)) return "period";
+  if (SITE_WORDS.test(label)) return "site";
+  if (PLACE_WORDS.test(label) || LOCATION_CUE.test(prefix)) return "place";
+  return "person";
+}
+
+/** Best-effort fallback for names the realtime model did not explicitly link. */
+export function inferCaptionEntities(text: string, existing: HistoricalEntity[] = []): HistoricalEntity[] {
+  const tokens = [...text.matchAll(/\S+/gu)].map((match) => {
+    const raw = match[0];
+    const leading = raw.match(/^[^\p{L}\p{N}]*/u)?.[0].length ?? 0;
+    const value = raw.slice(leading).replace(/[.,;:!?]+$/gu, "").replace(/[^\p{L}\p{N}'’.-]+$/gu, "").replace(/['’]s$/iu, "");
+    return { value, start: (match.index ?? 0) + leading, end: (match.index ?? 0) + leading + value.length };
+  });
+  const known = new Set(existing.flatMap((entity) => [entity.label, ...(entity.aliases ?? [])]).map((name) => name.toLocaleLowerCase()));
+  const inferred: HistoricalEntity[] = [];
+  const isName = (value: string) => /^\p{Lu}[\p{L}\p{M}'’.-]*$/u.test(value) || /^\p{Lu}{2,}$/u.test(value);
+  for (let index = 0; index < tokens.length;) {
+    if (!isName(tokens[index].value) || SENTENCE_WORDS.has(tokens[index].value.toLocaleLowerCase())) { index += 1; continue; }
+    const first = index;
+    let last = index;
+    while (last + 1 < tokens.length) {
+      const directGap = text.slice(tokens[last].end, tokens[last + 1].start);
+      if (/^\s+$/u.test(directGap) && isName(tokens[last + 1].value)) { last += 1; continue; }
+      const connectorGap = last + 2 < tokens.length ? text.slice(tokens[last + 1].end, tokens[last + 2].start) : "";
+      if (/^\s+$/u.test(directGap) && /^\s+$/u.test(connectorGap)
+        && CONNECTORS.has(tokens[last + 1].value.toLocaleLowerCase()) && last + 2 < tokens.length && isName(tokens[last + 2].value)) {
+        last += 2;
+        continue;
+      }
+      break;
+    }
+    const label = text.slice(tokens[first].start, tokens[last].end);
+    const lower = label.toLocaleLowerCase();
+    const words = label.split(/\s+/u);
+    if (!known.has(lower) && !(words.length === 1 && SENTENCE_WORDS.has(lower))) {
+      const kind = inferredKind(label, text.slice(Math.max(0, tokens[first].start - 24), tokens[first].start));
+      const slug = lower.normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
+      const entity: HistoricalEntity = {
+        id: `inferred-${slug}`,
+        label,
+        kind,
+        articleUrl: `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(label)}`,
+        summary: `${label} is a named reference mentioned by the guide. These Wikipedia search results provide a starting point for verification and further context.`,
+      };
+      inferred.push(entity);
+      known.add(lower);
+    }
+    index = last + 1;
+  }
+  return inferred;
+}
+
+/** Longest-match enrichment: explicit/reviewed entities first, then conservative inferred names. */
 export function enrichCaption(text: string, additions: HistoricalEntity[] = []): CaptionPart[] {
   if (!text) return [];
-  const catalogue = [...additions, ...HISTORICAL_ENTITIES.filter((known) => !additions.some((item) => item.label.toLocaleLowerCase() === known.label.toLocaleLowerCase()))];
+  const explicit = [...additions, ...HISTORICAL_ENTITIES.filter((known) => !additions.some((item) => item.label.toLocaleLowerCase() === known.label.toLocaleLowerCase()))];
+  const catalogue = [...explicit, ...inferCaptionEntities(text, explicit)];
   const names = catalogue.flatMap((entity) => [entity.label, ...(entity.aliases ?? [])].map((name) => ({ name, entity })))
     .sort((a, b) => b.name.length - a.name.length);
-  const pattern = new RegExp(`(${names.map(({ name }) => escapeRegExp(name)).join("|")})`, "giu");
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(${names.map(({ name }) => escapeRegExp(name)).join("|")})(?![\\p{L}\\p{N}])`, "giu");
   const lookup = new Map(names.map(({ name, entity }) => [name.toLocaleLowerCase(), entity]));
   return text.split(pattern).filter(Boolean).map((part) => ({ text: part, entity: lookup.get(part.toLocaleLowerCase()) }));
 }
