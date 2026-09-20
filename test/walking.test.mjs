@@ -170,21 +170,65 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
   };
   const key = (code, type = 'keydown') => { const event = new Event(type); Object.defineProperty(event, 'code', { value: code }); document.dispatchEvent(event); };
   try {
-    // Moving the cursor over the canvas turns, with no button and no capture.
-    pointer('pointerenter', { pointerType: 'mouse', clientX: 10, clientY: 10 });
-    const yaw = c.yaw;
-    pointer('pointermove', { pointerType: 'mouse', clientX: 110, clientY: 10 });
-    near(Math.abs(c.yaw - yaw), 100 * 0.004, 1e-9, 'cursor movement turns without a button');
-    const noClickPitch = c.pitch;
-    pointer('pointermove', { pointerType: 'mouse', clientX: 110, clientY: 60 });
-    near(Math.abs(c.pitch - noClickPitch), 50 * 0.004, 1e-9, 'vertical cursor movement pitches');
+    // The canvas is 1000x800, so the cursor rests at (500, 400).
+    const at = (x, y) => pointer('pointermove', { pointerType: 'mouse', clientX: x, clientY: y });
+    const frames = (n) => { for (let i = 0; i < n; i++) c.update(1 / 60); };
+    const rate = () => { const y = c.yaw, p = c.pitch; c.update(1 / 60); return { yaw: (c.yaw - y) * 60, pitch: (c.pitch - p) * 60 }; };
 
-    // Re-entering measures from the entry point, so leaving for a button and
-    // coming back somewhere else does not snap the view.
+    // The cursor steers by where it sits, not by how it got there, and with no
+    // button and no capture. The event itself never turns anything.
+    pointer('pointerenter', { pointerType: 'mouse', clientX: 500, clientY: 400 });
+    const resting = c.yaw;
+    at(900, 400);
+    assert.equal(c.yaw, resting, 'a pointer event alone does not turn the camera');
+    assert.ok(rate().yaw < 0, 'a cursor right of centre turns right');
+    at(100, 400);
+    assert.ok(rate().yaw > 0, 'a cursor left of centre turns left');
+    at(500, 720);
+    assert.ok(rate().pitch < 0, 'a cursor below centre looks down');
+    at(500, 80);
+    assert.ok(rate().pitch > 0, 'a cursor above centre looks up');
+
+    // Vertical is the same law as horizontal, which is the whole point: equal
+    // deflection along either axis has to turn at the same rate.
+    at(900, 400); const sideways = Math.abs(rate().yaw);
+    at(500, 720); const upright = Math.abs(rate().pitch);
+    near(upright, sideways, 1e-12, 'equal deflection turns at an equal rate in both axes');
+
+    // A rest band around the crosshair, so the cursor has somewhere to sit.
+    at(500, 400);
+    near(rate().yaw, 0, 1e-12, 'the centre of the canvas does not drift');
+    near(rate().pitch, 0, 1e-12, 'and does not pitch either');
+    at(575, 460);
+    near(rate().yaw, 0, 1e-12, 'nor does anywhere inside the rest band');
+    near(rate().pitch, 0, 1e-12, 'in either axis');
+
+    // Squared ramp: the first pixels outside the band barely move.
+    at(620, 400); const entering = Math.abs(rate().yaw);
+    at(1000, 400); const against = Math.abs(rate().yaw);
+    assert.ok(entering > 0 && entering < against / 20, 'the ramp eases out of the rest band');
+
+    // Nothing accumulates, so the view cannot drift away from the cursor. This
+    // is the regression: under the old delta law, grazing the pitch clamp threw
+    // away what it could not spend going up but charged all of it coming down,
+    // and the same cursor position came back ten degrees lower.
+    at(500, 400); frames(30);
+    const horizon = c.pitch;
+    at(500, 0); frames(120);
+    near(c.pitch, Math.PI / 2 - 0.02, 1e-9, 'holding the cursor at the top reaches straight up');
+    at(500, 400); frames(300);
+    near(c.pitch, Math.PI / 2 - 0.02, 1e-9, 'and the view stays there rather than unwinding');
+    at(500, 800); frames(240);
+    near(c.pitch, -(Math.PI / 2 - 0.02), 1e-9, 'holding the cursor at the bottom reaches straight down');
+    at(500, 400); frames(300);
+    near(c.pitch, -(Math.PI / 2 - 0.02), 1e-9, 'the rest band holds whatever it was given');
+    c.pitch = horizon;
+
+    // Re-entering never jumps: there is no seed to go stale.
     pointer('pointerleave', { pointerType: 'mouse', clientX: 110, clientY: 60 });
     const awayYaw = c.yaw;
     pointer('pointerenter', { pointerType: 'mouse', clientX: 700, clientY: 400 });
-    pointer('pointermove', { pointerType: 'mouse', clientX: 700, clientY: 400 });
+    at(700, 400);
     assert.equal(c.yaw, awayYaw, 're-entering the canvas does not jump the view');
 
     // M pauses, and nothing turns while paused. Escape is the browser's key for
@@ -261,15 +305,14 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
     c.pitch = 0; c.clearInput();
 
     // The user multiplier scales cursor turning as well as scroll.
+    pointer('pointerenter', { pointerType: 'mouse', clientX: 500, clientY: 400 });
     const turn = (sensitivity) => {
       c.setSensitivity(sensitivity);
-      pointer('pointerenter', { pointerType: 'mouse', clientX: 0, clientY: 300 });
-      const before = c.yaw;
-      pointer('pointermove', { pointerType: 'mouse', clientX: 100, clientY: 300 });
-      return Math.abs(c.yaw - before);
+      at(1000, 400);
+      return Math.abs(rate().yaw);
     };
     const at1 = turn(1), at2 = turn(2);
-    near(at1, 100 * 0.004, 1e-9, 'cursor turn rate');
+    near(at1, 2.2, 1e-9, 'full deflection turns at lookRate');
     near(at2, at1 * 2, 1e-9, 'sensitivity scales cursor look');
     c.setSensitivity(99);
     assert.equal(c.sensitivity, 3, 'sensitivity is clamped');
@@ -277,30 +320,17 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
     assert.equal(c.sensitivity, 3, 'a non-finite sensitivity is ignored');
     c.setSensitivity(1);
 
-    // Holding the cursor against an edge keeps yawing, which is the only way a
-    // full turn is reachable once the cursor runs out of screen.
+    // A full turn is reachable by holding the cursor out at the edge.
     c.setSensitivity(1);
-    const settle = () => { const y = c.yaw; c.update(1 / 60); return c.yaw - y; };
     pointer('pointerenter', { pointerType: 'mouse', clientX: 500, clientY: 400 });
-    pointer('pointermove', { pointerType: 'mouse', clientX: 500, clientY: 400 });
-    near(settle(), 0, 1e-12, 'the middle of the canvas does not drift');
-    pointer('pointermove', { pointerType: 'mouse', clientX: 2, clientY: 400 });
-    const atLeft = settle();
-    assert.ok(atLeft > 0, 'the left edge keeps turning left');
-    pointer('pointermove', { pointerType: 'mouse', clientX: 998, clientY: 400 });
-    assert.ok(settle() < 0, 'the right edge keeps turning right');
-    // The ramp is gentle entering the margin and quickest against the edge.
-    pointer('pointermove', { pointerType: 'mouse', clientX: 110, clientY: 400 });
-    const nearMargin = settle();
-    assert.ok(nearMargin > 0 && nearMargin < atLeft / 4, 'the edge ramp eases in');
-    // A full turn is reachable by holding the edge.
+    at(500, 400);
     const spinStart = c.yaw;
-    pointer('pointermove', { pointerType: 'mouse', clientX: 0, clientY: 400 });
-    for (let i = 0; i < 60 * 4; i++) c.update(1 / 60);
-    assert.ok(c.yaw - spinStart > Math.PI * 2, 'holding an edge turns a full circle');
-    // Leaving the canvas stops it, so a cursor parked on a control never spins.
+    at(0, 400);
+    frames(60 * 4);
+    assert.ok(c.yaw - spinStart > Math.PI * 2, 'holding the edge turns a full circle');
+    // A cursor that has left the canvas never spins the world behind a control.
     pointer('pointerleave', { pointerType: 'mouse', clientX: 0, clientY: 400 });
-    near(settle(), 0, 1e-12, 'an edge cursor that has left the canvas does not turn');
+    near(rate().yaw, 0, 1e-12, 'a cursor off the canvas does not turn');
 
     // Face -z so the movement assertions below measure travel, not the look tests' heading.
     c.clearInput(); m.reset(); c.yaw = 0; c.pitch = 0;

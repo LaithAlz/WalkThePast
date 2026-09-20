@@ -196,7 +196,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
           ref={canvasRef}
           className="explore-canvas"
           tabIndex={0}
-          aria-label="3D world. Move the pointer or scroll to turn. Press M for the menu. Use W A S D or arrow keys to walk, Shift to run, R to reset."
+          aria-label="3D world. Point where you want to look, or scroll to turn. Press M for the menu. Use W A S D or arrow keys to walk, Shift to run, R to reset."
         />
         <img
           ref={overlayRef}
@@ -245,8 +245,8 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
           <dl className="walk-shortcuts">
             <div><dt>W A S D</dt><dd>Move</dd></div>
             <div><dt>Shift</dt><dd>Run</dd></div>
-            <div><dt>Mouse</dt><dd>Turn</dd></div>
-            <div><dt>Scroll</dt><dd>Turn further</dd></div>
+            <div><dt>Mouse</dt><dd>Point to look</dd></div>
+            <div><dt>Scroll</dt><dd>Turn</dd></div>
             {voice && <div><dt>Space</dt><dd>Hold to talk</dd></div>}
             <div><dt>M</dt><dd>This menu</dd></div>
             <div><dt>R</dt><dd>Reset position</dd></div>

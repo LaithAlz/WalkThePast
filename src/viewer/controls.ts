@@ -1,14 +1,14 @@
 /**
  * First-person controller for Phase 1.
  *
- * Nothing here needs a button held or a pointer captured. There is no
- * click-to-capture and no drag-to-look: you turn by moving, which on a
- * trackpad means a one-finger swipe for looking and a two-finger swipe for
- * turning further.
+ * Nothing here needs a button held or a pointer captured. The mouse steers by
+ * POSITION, not by movement: where the cursor sits inside the canvas sets how
+ * fast the view turns, and a rest band around the crosshair holds it still.
+ * Point at what you want to look at and the view goes there.
  *
- *  - move the cursor over the canvas: turns (yaw from x, pitch from y)
- *  - hold the cursor against a left or right edge: keeps yawing, which is what
- *    makes a full turn reachable when the cursor runs out of screen
+ *  - cursor inside the rest band: nothing turns
+ *  - cursor outside it: turns toward the cursor, in both axes, faster the
+ *    further out it sits, so a full circle and the ceiling are both reachable
  *  - scroll: turns as well, banked and eased out over a few frames
  *  - touch: one-finger swipe turns, since a touchscreen has no cursor
  *  - WASD grounded capsule movement, Shift run; Q/C height in development fly mode
@@ -18,10 +18,18 @@
  * Yaw/pitch are the source of truth; call syncFromCamera() after setting the
  * camera pose from elsewhere (reset-to-photographer, saved poses).
  *
- * The cost of cursor-steering is that the view turns on the way to an overlay
- * button. That is bounded rather than eliminated: turning only happens while
- * the cursor is over the canvas, so it stops the moment the cursor reaches a
- * control, and re-entering the canvas reseeds instead of jumping.
+ * This replaced a controller that accumulated cursor deltas in the middle of
+ * the canvas and switched to a rate at the edges. Two control laws in one
+ * controller cost us both of the bugs that mattered. The pitch clamp threw
+ * away the part of a delta it could not spend on the way up but charged the
+ * whole of it on the way down, so grazing the ceiling silently re-zeroed the
+ * horizon: cursor back where it started, view ten degrees lower. And the edge
+ * rate advanced yaw while the cursor stood still, so cursor position stopped
+ * predicting the heading at all. One law has neither failure, because nothing
+ * accumulates: the cursor's position is the whole of the input, every frame.
+ *
+ * Turning still only happens while the cursor is over the canvas, so a cursor
+ * that has reached an overlay control never spins the world.
  */
 import * as THREE from "three";
 import type { WalkingMotor } from "./walking";
@@ -29,6 +37,10 @@ import type { WalkingMotor } from "./walking";
 /** Exponential rate at which banked scroll is spent, per second. */
 const WHEEL_EASE = 18;
 const PITCH_LIMIT = Math.PI / 2 - 0.02;
+/** Half-extent of the rest band at the centre of the canvas, as a fraction of
+ * each half-axis. Large enough to park the cursor in without the view creeping,
+ * small enough that most of the canvas still steers. */
+const LOOK_REST_BAND = 0.16;
 
 const MOVE_KEYS: Record<string, [number, number, number]> = {
   KeyW: [0, 0, -1], KeyS: [0, 0, 1], KeyA: [-1, 0, 0], KeyD: [1, 0, 0],
@@ -40,13 +52,14 @@ export class FirstPersonControls {
   pitch = 0;
   moveSpeed = 1.6; // world units (metres for metric worlds) per second
   runMultiplier = 2.5;
-  /** rad per pixel of cursor travel. Cursor travel is bounded by the window, so
-   * this is set for roughly a half turn per comfortable trackpad swipe. */
+  /** rad per pixel of touch swipe. A mouse never uses this: a cursor has a
+   * position to read, and reading it is what keeps the view and the cursor
+   * from drifting apart. A finger has no position to come back to. */
   lookSpeed = 0.004;
   /** rad per normalised pixel of scroll, for scroll-to-turn. */
   wheelLookSpeed = 0.0022;
-  /** rad/s of extra yaw with the cursor hard against a left or right edge. */
-  edgeTurnSpeed = 2.2;
+  /** rad/s with the cursor at the very edge of the canvas, in either axis. */
+  lookRate = 2.2;
   /** User multiplier over every look rate below. See setSensitivity. */
   sensitivity = 1;
   padLookSpeed = 2.2; // rad/s at full deflection
@@ -69,10 +82,14 @@ export class FirstPersonControls {
   private euler = new THREE.Euler(0, 0, 0, "YXZ");
   private v = new THREE.Vector3();
   private teardown: Array<() => void> = [];
-  private lastX = 0;
-  private lastY = 0;
-  /** False until we have a cursor position to measure the next move against. */
+  /** Where the cursor sits. Read every frame; never differenced. */
+  private cursorX = 0;
+  private cursorY = 0;
+  /** False until the cursor is known to be over the canvas. */
   private hasPointer = false;
+  /** Previous touch point, for the swipe delta. Mouse input never uses these. */
+  private swipeX = 0;
+  private swipeY = 0;
   /** Scroll banked by the wheel handler, drained a fraction per frame by update(). */
   private wheelYaw = 0;
   private wheelPitch = 0;
@@ -87,21 +104,16 @@ export class FirstPersonControls {
       const pe = e as PointerEvent;
       if (!this.enabled || this.paused || pe.button !== 0 || pe.pointerType === "mouse") return;
       this.dragging = true;
-      this.lastX = pe.clientX;
-      this.lastY = pe.clientY;
+      this.swipeX = pe.clientX;
+      this.swipeY = pe.clientY;
       capturePointer(canvas, pe.pointerId);
       pe.preventDefault();
     });
-    // Seed on entry so the first move measures from where the cursor came in
-    // rather than from wherever it was last seen, which would snap the view.
     this.on(canvas, "pointerenter", (e) => {
       const pe = e as PointerEvent;
-      // Ignore entries while input is ours to refuse: pointermove is returning
-      // early, so the seed would go stale and the next enabled move would apply
-      // the whole accumulated delta as one swing.
       if (!this.enabled || pe.pointerType !== "mouse") return;
-      this.lastX = pe.clientX;
-      this.lastY = pe.clientY;
+      this.cursorX = pe.clientX;
+      this.cursorY = pe.clientY;
       this.hasPointer = true;
     });
     this.on(canvas, "pointerleave", (e) => {
@@ -110,20 +122,22 @@ export class FirstPersonControls {
     this.on(canvas, "pointermove", (e) => {
       const pe = e as PointerEvent;
       if (!this.enabled || this.paused) return;
-      const mouse = pe.pointerType === "mouse";
-      // A mouse turns simply by moving over the canvas. Touch needs a finger down.
-      if (!(mouse || this.dragging)) return;
-      if (mouse && !this.hasPointer) {
-        this.lastX = pe.clientX;
-        this.lastY = pe.clientY;
+      // A mouse only reports where it is; cursorTurn does the turning, once a
+      // frame, from that position alone. Nothing is differenced, so nothing
+      // can be lost at the pitch clamp or gained while the cursor stands still.
+      if (pe.pointerType === "mouse") {
+        this.cursorX = pe.clientX;
+        this.cursorY = pe.clientY;
         this.hasPointer = true;
         return;
       }
+      // Touch has no cursor to read, so a finger down turns by its own delta.
+      if (!this.dragging) return;
       const scale = this.lookSpeed * this.sensitivity;
-      this.yaw -= (pe.clientX - this.lastX) * scale;
-      this.pitch -= (pe.clientY - this.lastY) * scale;
-      this.lastX = pe.clientX;
-      this.lastY = pe.clientY;
+      this.yaw -= (pe.clientX - this.swipeX) * scale;
+      this.pitch -= (pe.clientY - this.swipeY) * scale;
+      this.swipeX = pe.clientX;
+      this.swipeY = pe.clientY;
       this.clampPitch();
     });
     const endSwipe = (e: Event) => {
@@ -223,34 +237,35 @@ export class FirstPersonControls {
     return true;
   }
 
-  /** Keep yawing while the cursor rests against a left or right edge.
+  /** Turn toward wherever the cursor is sitting, in both axes.
    *
-   * Cursor travel is bounded by the window, so on its own it only buys you the
-   * turn that fits across one screen — push to the edge and you stop, with no
-   * way round. This is the part that makes a full 360 reachable.
+   * The whole of the input is the cursor's position this frame, so the view
+   * cannot drift away from it: there is no running total to lose a clamped
+   * degree from, and none to gain a degree the cursor never asked for. Park
+   * the cursor in the rest band and the view is still, every time, whatever
+   * happened before.
    *
-   * Yaw only. Pitch is clamped to just under a quarter turn, which is ~390px of
-   * cursor travel and fits on any screen, so a vertical equivalent would buy
-   * nothing and would creep the view whenever the cursor neared the toolbar.
+   * Both axes, equally. Pitch used to be excluded because its clamp is only a
+   * quarter turn away and the delta law could cross that in one sweep; a rate
+   * cannot overshoot a clamp, and excluding it was what made looking up feel
+   * unlike looking sideways.
    *
    * @returns true if the camera turned this frame
    */
-  private edgeTurn(dt: number): boolean {
+  private cursorTurn(dt: number): boolean {
     // hasPointer is mouse-only and false once the cursor leaves the canvas, so
     // this never runs while the cursor is parked on a control or off-window.
     if (!this.hasPointer) return false;
     const bounds = this.canvas.getBoundingClientRect?.();
-    if (!bounds || !(bounds.width > 0) || !Number.isFinite(this.lastX)) return false;
-    const margin = Math.min(120, Math.max(48, bounds.width * 0.12));
-    const fromLeft = this.lastX - bounds.left;
-    const fromRight = bounds.left + bounds.width - this.lastX;
-    // Past the edge entirely counts as full deflection rather than overshooting.
-    const depth = fromLeft < margin ? -(1 - Math.max(0, fromLeft) / margin)
-      : fromRight < margin ? 1 - Math.max(0, fromRight) / margin
-        : 0;
-    if (!depth) return false;
-    // Squared ramp: barely moves entering the margin, quickest against the edge.
-    this.yaw -= Math.sign(depth) * depth * depth * this.edgeTurnSpeed * this.sensitivity * dt;
+    if (!bounds || !(bounds.width > 0) || !(bounds.height > 0)) return false;
+    if (!Number.isFinite(this.cursorX) || !Number.isFinite(this.cursorY)) return false;
+    const x = deflection((this.cursorX - bounds.left) / bounds.width);
+    const y = deflection((this.cursorY - bounds.top) / bounds.height);
+    if (!x && !y) return false;
+    const rate = this.lookRate * this.sensitivity * dt;
+    this.yaw -= x * rate;
+    this.pitch -= y * rate;
+    this.clampPitch();
     return true;
   }
 
@@ -333,7 +348,7 @@ export class FirstPersonControls {
     } else this.padPrev = [];
 
     if (this.drainWheel(dt)) moved = true;
-    if (this.edgeTurn(dt)) moved = true;
+    if (this.cursorTurn(dt)) moved = true;
 
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     this.v.set(mx * cos + mz * sin, 0, mz * cos - mx * sin);
@@ -359,6 +374,22 @@ function capturePointer(canvas: HTMLCanvasElement, id: number) {
 
 function releasePointer(canvas: HTMLCanvasElement, id: number) {
   try { canvas.releasePointerCapture?.(id); } catch { /* already released with the pointer */ }
+}
+
+/** Where the cursor sits along one axis of the canvas, as a signed pull away
+ * from the rest band: 0 inside it, ±1 at the edge.
+ *
+ * Squared, so the first pixels outside the band barely move the view and the
+ * edge is quickest. That curve is what makes a single control law usable for
+ * both a careful look and a full spin.
+ *
+ * @param fraction 0 at the left/top of the canvas, 1 at the right/bottom
+ */
+function deflection(fraction: number): number {
+  // A cursor past the edge counts as full deflection rather than overshooting.
+  const offset = Math.max(-1, Math.min(1, fraction * 2 - 1));
+  const past = (Math.abs(offset) - LOOK_REST_BAND) / (1 - LOOK_REST_BAND);
+  return past <= 0 ? 0 : Math.sign(offset) * past * past;
 }
 
 export function isTyping(e: KeyboardEvent): boolean {
