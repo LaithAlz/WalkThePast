@@ -111,7 +111,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         response: {
           output_modalities: ["text"],
           instructions: quizDue
-            ? "The visitor has reached the third guided pause. Give a short one-to-three-question knowledge check now. Call presentQuizQuestion for the first question before speaking it, use exactly four choices with one correct answer, read all four choices, then say exactly: You can answer now. Wait for the visitor's answer."
+            ? "The visitor has reached the third guided pause. Give a short one-to-three-question knowledge check now, asking only about facts you actually stated in this session or well-established facts of this place; never claim something was discussed unless you said it. Call presentQuizQuestion for the first question before speaking it, use exactly four choices with one correct answer, read all four choices, then say exactly: You can answer now. Wait for the visitor's answer."
             : "The visitor has remained silent through the guided pause. Continue the historical tour with the most meaningful next topic. Briefly connect it to the previous segment, add new historically grounded context, do not repeat yourself, and end with: I'll pause here for you.",
         },
       });
@@ -307,7 +307,11 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     const current = quizRef.current;
     if (!current || current.selectedOption !== undefined || !Number.isInteger(selectedOption)
       || selectedOption < 0 || selectedOption > 3 || channelRef.current?.readyState !== "open") return;
-    clearGuidedPause();
+    // An answer can arrive while the historian is still reading the choices: stop that speech first,
+    // then ask for the feedback. The cancel flag is reset so the feedback response is not cancelled too.
+    interruptNarration();
+    cancelRequestedResponseRef.current = false;
+    responseRequestedRef.current = true;
     const answered = { ...current, selectedOption };
     quizRef.current = answered;
     setQuiz(answered);
@@ -326,7 +330,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         instructions: `The visitor selected option ${selectedOption + 1}. That answer is ${selectedOption === current.correctOption ? "correct" : "incorrect"}. Give only brief feedback on this answer and explain: ${current.explanation} Do not call presentQuizQuestion and do not introduce the next question yet.${current.questionNumber === current.totalQuestions ? " Briefly conclude the quiz, then make a natural transition: either move into the most relevant next historical subject, or ask whether the visitor would like to explore the current subject more deeply. Choose whichever best fits the conversation. Do not end with the standard pause sentence." : ""}`,
       },
     });
-  }, [clearGuidedPause, send]);
+  }, [interruptNarration, send]);
 
   const cancelQuiz = useCallback(() => {
     if (!quizRef.current) return;
@@ -587,7 +591,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           type: "response.create",
           response: {
             output_modalities: ["text"],
-            instructions: "Give the historical opening now. Sound like an expert public historian, name the actual place and period from the world metadata you were just given (title, place, date, description and world guide; if those are vague, infer them from the source image and say so), lead with established facts about that place and time, and establish the first meaningful thread of a guided tour. Never talk about a different place than the one in the metadata. Do not mention the image, reconstruction, technology, provenance, or source limitations in this opening. End with: I'll pause here for you.",
+            instructions: "Give the historical opening now. Begin with the words \"Welcome to\" followed by the place's own name. Sound like an expert public historian, name the actual place and period from the world metadata you were just given (title, place, date, description and world guide; if those are vague, infer them from the source image and say so), lead with established facts about that place and time, and establish the first meaningful thread of a guided tour. Never talk about a different place than the one in the metadata. Do not mention the image, reconstruction, technology, provenance, or source limitations in this opening. End with: I'll pause here for you.",
           },
         });
       };

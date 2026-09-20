@@ -113,7 +113,8 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
   const submitQuizAnswerRef = useRef(voice.submitQuizAnswer);
   useEffect(() => { submitQuizAnswerRef.current = voice.submitQuizAnswer; }, [voice.submitQuizAnswer]);
   useEffect(() => {
-    if (!voice.quiz || voice.quiz.selectedOption !== undefined || voice.status !== "listening" || voice.isPaused) return;
+    // Answers are accepted while the historian is still reading the choices; only an unconnected or paused session blocks them.
+    if (!voice.quiz || voice.quiz.selectedOption !== undefined || voice.status === "idle" || voice.status === "connecting" || voice.status === "error" || voice.isPaused) return;
     const answerWithLetter = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, [contenteditable=true]") || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -229,7 +230,7 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
               type="button"
               key={`${voice.quiz?.id}-${index}`}
               className={`${selected ? "is-selected" : ""}${correct ? " is-correct" : ""}${selected && !correct ? " is-wrong" : ""}`}
-              disabled={answered || voice.status !== "listening" || voice.isPaused}
+              disabled={answered || voice.status === "idle" || voice.status === "connecting" || voice.status === "error" || voice.isPaused}
               onClick={() => voice.submitQuizAnswer(index)}
             >
               <b>{String.fromCharCode(65 + index)}</b><span>{option}</span>
