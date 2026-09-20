@@ -285,7 +285,12 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         : { status: "unavailable", message: "The current camera view could not be captured. Do not guess what is visible." };
     } else if (call.name === "presentQuizQuestion") {
       const nextQuiz = quizFromTool(callId, args);
-      if (nextQuiz) {
+      const shown = quizRef.current;
+      if (nextQuiz && shown && shown.selectedOption === undefined && shown.questionNumber === nextQuiz.questionNumber) {
+        // Asked for the same question twice: keep the card that is up and say so, otherwise
+        // a model that repeats the call after each tool result never gets to speak.
+        output = { status: "already_displayed", questionNumber: shown.questionNumber, totalQuestions: shown.totalQuestions, instruction: "Do not call presentQuizQuestion again. Read the displayed question aloud now, say the choices are on screen, and finish with: You can answer now." };
+      } else if (nextQuiz) {
         clearGuidedPause();
         quizRef.current = nextQuiz;
         setQuiz(nextQuiz);
@@ -485,7 +490,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           // The reply that called the tools was asked for something specific (the welcome, the
           // next quiz question); without repeating that here the model answers the tools instead.
           const carried = lastInstructionsRef.current;
-          send({ type: "response.create", response: { output_modalities: ["text"], continuation: true, ...(carried ? { instructions: carried + " The tool results are in: now give that spoken reply itself, in full." } : {}) } });
+          const followUp = "Every tool named above has already been called and answered; do not call any of them again for the same thing. A quiz question that is displayed is on screen already. Now speak the reply itself, in full.";
+          send({ type: "response.create", response: { output_modalities: ["text"], continuation: true, instructions: carried ? `${carried}\n\n${followUp}` : followUp } });
         } else {
           // Network generation completion is independent of local playback completion.
           playerRef.current?.finish();
