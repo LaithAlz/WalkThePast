@@ -3,6 +3,7 @@ import { worlds } from "../lib/backend";
 import type { EvidenceCounts, Verdict } from "../viewer/Viewer";
 import { useRealtimeHistorian } from "../voice/useRealtimeHistorian";
 import { enrichCaption, type HistoricalEntity } from "../historian/entities";
+import type { GuideMood } from "../companion/Companion";
 
 type Props = {
   world: { title: string; place: string; date: string; note: string; image: string; worldId?: string };
@@ -16,9 +17,11 @@ type Props = {
   paused?: boolean;
   showMediaControls?: boolean;
   onQuizActiveChange?: (active: boolean) => void;
+  /** Lifted so the guide standing in the world can act on what is being said. */
+  onMood?: (mood: GuideMood) => void;
 };
 
-export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, captureCurrentView, paused = false, showMediaControls = false, onQuizActiveChange }: Props) {
+export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, captureCurrentView, paused = false, showMediaControls = false, onQuizActiveChange, onMood }: Props) {
   // Generated worlds carry the user's note, the world guide the scene was built from, and what the source was
   // in their manifest; the historian must speak about that, never about a stock example.
   const [manifestFacts, setManifestFacts] = useState<{ description?: string; guide?: string; sourceKind?: string }>({});
@@ -63,6 +66,13 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
           : voice.status === "speaking" ? "Historian speaking"
             : "Reconnect historian";
   const captionParts = enrichCaption(voice.caption, voice.entities);
+  // Only a held Space counts as listening: the session sits in "listening" the
+  // whole time it is connected, and a guide nodding at nothing is unnerving.
+  const mood: GuideMood = voice.isPaused ? "idle"
+    : voice.status === "speaking" ? "speaking"
+      : voice.status === "thinking" || voice.status === "connecting" ? "thinking"
+        : spaceHeld ? "listening" : "idle";
+  useEffect(() => { onMood?.(mood); }, [mood, onMood]);
   useEffect(() => {
     if (voice.error) void onPresentationReady?.();
   }, [voice.error, onPresentationReady]);

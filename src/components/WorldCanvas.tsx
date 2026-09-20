@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Viewer, type EvidenceCounts, type Verdict, type ViewerStatus, type NavigationStatus } from "../viewer/Viewer";
+import { Viewer, type EvidenceCounts, type GuideStatus, type Verdict, type ViewerStatus, type NavigationStatus } from "../viewer/Viewer";
+import type { GuideMood } from "../companion/Companion";
+import { GuidePicker } from "../companion/GuidePicker";
 import { DEFAULT_SENSITIVITY } from "../viewer/controls";
 import { PhotoTransition, type Mode } from "../viewer/transition";
 import type { WorldManifest } from "../viewer/world";
@@ -25,9 +27,11 @@ type Props = {
   voice?: boolean;
   onPaused?: (paused: boolean) => void;
   quizActive?: boolean;
+  /** What the historian is doing, which is what the guide does with its hands. */
+  guideMood?: GuideMood;
 };
 
-export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady = true, waitingMessage = "Preparing the experience…", onLandingHidden, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onVisionCaptureReady, onExit, voice = false, onPaused, quizActive = false }: Props) {
+export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady = true, waitingMessage = "Preparing the experience…", onLandingHidden, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onVisionCaptureReady, onExit, voice = false, onPaused, quizActive = false, guideMood = "idle" }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLImageElement>(null);
@@ -39,6 +43,9 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
   const [mode, setMode] = useState<Mode>("photo");
   const [navigation, setNavigation] = useState<NavigationStatus>({ mode: "loading", message: "Preparing walking…" });
   const [pauseMenu, setPauseMenu] = useState(false);
+  // Who is walking with you, so the pause menu can say so — and so a guide that
+  // could not be placed says that rather than just quietly not being there.
+  const [guide, setGuide] = useState<GuideStatus>({ kind: "none" });
   const [entering, setEntering] = useState(false);
   // Pointer lock is the browser's to give and take, so the prompt tracks what
   // it reports rather than what we last asked for.
@@ -115,6 +122,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
       },
       onCounts: (counts) => sinks.current.onCounts?.(counts),
       onVerdict: (verdict) => sinks.current.onVerdict?.(verdict),
+      onGuide: setGuide,
     });
     transition.onMode = (m) => {
       setMode(m);
@@ -156,6 +164,10 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
   useEffect(() => {
     viewerRef.current?.setEvidenceMode(evidence);
   }, [evidence]);
+
+  useEffect(() => {
+    viewerRef.current?.setGuideMood(guideMood);
+  }, [guideMood]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -249,10 +261,18 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
         {mode === "photo" && manifest?.source?.image && (
           <div className={`photo-landing${entering ? " is-entering" : ""}`} onTransitionEnd={(event) => { if (event.propertyName === "opacity" && entering) sinks.current.onLandingHidden?.(); }}>
             <div className="photo-card">
-              <p className="eyebrow">THE PHOTOGRAPH</p>
-              <h2>{credit.title ?? manifest.name}</h2>
-              {meta && <p className="photo-meta">{meta}</p>}
-              {credit.licence && <p className="photo-licence">{credit.licence}</p>}
+              {/* The last moment before you are committed, so the right place to
+                  pick who comes with you. Changing it swaps the guide in place
+                  rather than reloading the world. */}
+              <div className="photo-card-top">
+                <div className="photo-card-head">
+                  <p className="eyebrow">THE PHOTOGRAPH</p>
+                  <h2>{credit.title ?? manifest.name}</h2>
+                  {meta && <p className="photo-meta">{meta}</p>}
+                  {credit.licence && <p className="photo-licence">{credit.licence}</p>}
+                </div>
+                <GuidePicker tone="dark" onChange={() => viewerRef.current?.reloadGuide()} />
+              </div>
               <div className="photo-actions">
                 <button className="button" disabled={!canEnter} onClick={() => void enter()}>
                   {canEnter ? "Walk into the photograph" : ready ? "Preparing the historian" : "Preparing the world"}
@@ -276,7 +296,8 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
             <p>
               <b>Click to look around</b>
               <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> run · <kbd>P</kbd> pause</span>
-              {voice && <em>Hold <kbd>Space</kbd> to talk to your tutor</em>}
+
+              {voice && <em>Hold <kbd>Space</kbd> to talk to {guide.kind === "ready" ? guide.name : "your tutor"}</em>}
             </p>
           </div> : null)}
       {canWalk && <div className="walking-touch" aria-label="Walking controls">
@@ -294,6 +315,8 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
           <p className="eyebrow">WALK THE PAST</p>
           <h2 id="walk-pause-title">Paused</h2>
           <p>Walking, looking and the historian are all held. Resume to carry on where you left off.</p>
+          {guide.kind === "ready" && <p className="walk-guide">{guide.name} is walking this world with you.</p>}
+          {guide.kind === "error" && <p className="walk-guide is-error">Your guide could not join this world. {guide.message}</p>}
           <dl className="walk-shortcuts">
             <div><dt>Click</dt><dd>Look around</dd></div>
             <div><dt>W A S D</dt><dd>Move</dd></div>

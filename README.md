@@ -127,10 +127,12 @@ src/
   components/
     WorldCanvas.tsx      Mounts the viewer, owns its lifecycle
     Hud.tsx              Status + frame rate overlay
+  companion/             The guide who walks the world with you (docs/guide.md)
   worlds.ts              Hero world registry
 public/
   worlds/                Marble exports (gitignored — too large)
   sources/               Original historical photographs (committed)
+  characters/            Optional Mixamo clips for the guide (see its README)
 ```
 
 ### Why plain Three.js and not react-three-fiber
@@ -188,6 +190,52 @@ still plays with captions estimated across its observed duration. See the offici
 [speech generation](https://developers.openai.com/api/docs/guides/text-to-speech)
 and [word timestamp](https://developers.openai.com/api/docs/guides/speech-to-text#timestamps)
 documentation. Run `npm test` for playback, network, interruption, and timing checks.
+
+## Your guide
+
+The create screen carries a guide shelf beside the prompt: who is coming with
+you, everyone you have made, and a tick box for walking alone. Making one takes
+a selfie — Avaturn turns it into a rigged 3D character in the browser — and it
+is then waiting inside every world you build, walking a step ahead of you,
+turning to face you when you stop, and gesturing while the voice historian
+talks.
+
+The face is **not** yours. You stay first person with no body; what you have
+made is who is showing you round.
+
+```bash
+# In .env.local. Free project at avaturn.me -> Developers -> Create Project.
+VITE_AVATURN_URL=https://your-project.avaturn.dev
+```
+
+Without it the step falls back to Avaturn's shared demo project, which is rate
+limited — fine to try, not to demo on. The photograph and the finished
+character both stay in the browser: the GLB goes into IndexedDB and nothing
+about either is uploaded to this app's server.
+
+Walking alone is a tick box, and every world is walkable either way — which is
+what this did before guides existed.
+
+Testing the world rather than the photo step? In dev — and only in dev — the
+step will take any rigged humanoid `.glb` straight in through a file picker.
+See [docs/guide.md](docs/guide.md#testing-without-avaturn).
+
+Two things worth knowing, both covered properly in
+[docs/guide.md](docs/guide.md):
+
+- **The guide walks on the same collision mesh you do.** It gets its own
+  `WalkingMotor` over the world's existing octree rather than a second physics
+  engine, so it can never reach somewhere you could not have walked to, and a
+  world with no `collider.glb` still gets a guide on the level-ground fallback.
+- **Its animation is written, not exported.** A selfie avatar arrives rigged
+  with no clips, and no Mixamo pack contains a wave or a talking gesture, so
+  `src/companion/pose.ts` generates idle, walk, run and the gestures against
+  whatever skeleton the avatar came with. Dropping a Mixamo GLB into
+  `public/characters/` hands locomotion over to it; the gestures stay.
+- **Its mouth moves while it talks**, driven through ARKit or Oculus blend
+  shapes where the avatar has them, a jaw bone where it does not, and left shut
+  where it has neither. It is a written speech envelope rather than lip sync;
+  `Companion.setSpeechLevel()` is there for real audio.
 
 ## Stack
 
