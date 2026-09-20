@@ -1,0 +1,57 @@
+{
+  "id": "rue-cardinale-1922-with-imagined-angles-wlduw0",
+  "name": "Rue Cardinale, Paris, 1922 · photo + imagined angles",
+  "generator": "marble",
+  "splat": {
+    "url": "./splat_full_res.spz",
+    "convention": "opencv",
+    "lod": true
+  },
+  "metric": {
+    "scaleFactor": 0.5612241,
+    "groundPlaneOffset": 1.4689232
+  },
+  "source": {
+    "image": "./source.jpg",
+    "fovY": 55
+  },
+  "sourceCamera": null,
+  "pano": {
+    "url": "./pano.png",
+    "yawDeg": 90
+  },
+  "bounds": {
+    "radiusM": 3.5
+  },
+  "credit": {
+    "title": "Rue Cardinale",
+    "photographer": "Eugène Atget",
+    "year": "1922",
+    "place": "Paris, 6e",
+    "licence": "Getty Museum Open Content · public domain · surround imagined from 3 AI views"
+  },
+  "marble": {
+    "world_id": "a822d533-76f0-4547-9fd4-da4b58709f39",
+    "model": "marble-1.1",
+    "world_marble_url": "https://marble.worldlabs.ai/world/a822d533-76f0-4547-9fd4-da4b58709f39",
+    "files": {
+      "full_res": "splat_full_res.spz",
+      "500k": "splat_500k.spz",
+      "150k": "splat_150k.spz",
+      "100k": "splat_100k.spz",
+      "pano": "pano.png",
+      "collider": "collider.glb"
+    },
+    "caption": "A photorealistic reconstruction of Rue Cardinale in Paris in 1922 exactly as photographed by Eugène Atget: keep the composition, architecture, materials and lighting of the photograph faithful, extend the street and buildings beyond the frame in the same period style, no picture frame, no border, no modern objects.",
+    "prompt": "A photorealistic reconstruction of Rue Cardinale in Paris in 1922 exactly as photographed by Eugène Atget: keep the composition, architecture, materials and lighting of the photograph faithful, extend the street and buildings beyond the frame in the same period style, no picture frame, no border, no modern objects.",
+    "mode": "azimuth",
+    "inputImages": 4,
+    "azimuths": [
+      0,
+      90,
+      180,
+      270
+    ]
+  },
+  "notes": "Generated through the in-app Marble bridge (server/marble.ts). Align the photographer (R, nudge, L) to make provenance exact."
+}

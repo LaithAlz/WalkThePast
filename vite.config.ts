@@ -2,6 +2,8 @@ import { defineConfig, loadEnv, type Connect, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { createNarrationHandler } from "./server/narration.ts";
+import { marbleApi } from "./server/marble.ts";
+import { viewsApi } from "./server/views.ts";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -12,7 +14,14 @@ export default defineConfig(({ mode }) => {
     : { "@clerk/react": fileURLToPath(new URL("./src/shims/clerk-stub.tsx", import.meta.url)) };
   if (!hasClerk) console.warn("[walk-the-past] VITE_CLERK_PUBLISHABLE_KEY not set: auth is stubbed, the app runs signed-out.");
   return {
-    plugins: [react(), realtimeSessionEndpoint(openAIKey, env.OPENAI_REALTIME_MODEL)],
+    plugins: [
+      react(),
+      // World generation from the user's own photo or text (Laith's bridge).
+      marbleApi({ apiKey: env.WORLDLAB_API_KEY || env.WORLDLABS_API_KEY, worldsDir: fileURLToPath(new URL("./public/worlds", import.meta.url)) }),
+      viewsApi({ geminiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY, openaiKey: env.OPENAI_API_KEY, prefer: env.VIEW_PROVIDER }),
+      // The voice historian's realtime session minting.
+      realtimeSessionEndpoint(openAIKey, env.OPENAI_REALTIME_MODEL),
+    ],
     resolve: {
       alias,
     },

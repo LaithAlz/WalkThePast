@@ -4,12 +4,24 @@
     "name": "Hall of Mirrors, Versailles (walkable, collider)"
   },
   {
+    "id": "rue-cardinale-1922-with-imagined-angles-wlduw0",
+    "name": "Rue Cardinale, Paris, 1922 · photo + imagined angles"
+  },
+  {
+    "id": "rue-cardinale-1922-plus-imagined-angles-k90nx9",
+    "name": "Rue Cardinale, Paris, 1922 · photo + imagined angles (Plus)"
+  },
+  {
     "id": "marble-paris-cropped",
     "name": "Rue Cardinale, Paris, 1922 (hero)"
   },
   {
     "id": "marble-giza",
     "name": "Giza plateau (illustration)"
+  },
+  {
+    "id": "roman-forum-1900-noq1t4",
+    "name": "Roman Forum, 1900 · draft model test"
   },
   {
     "id": "marble-paris",
