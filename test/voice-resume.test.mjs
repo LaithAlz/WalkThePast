@@ -118,7 +118,7 @@ async function createHistorian({ blockedPlayback = false } = {}) {
       if (name === "./narrationText") return splitterExports;
       // The hook routes its calls through the configured backend. VITE_API_BASE is empty
       // for local dev, so api() is identity and the fetch fixtures below stay as they are.
-      if (name === "../lib/backend") return { api: (path) => path };
+      if (name === "../lib/backend") return { api: (path) => path, authHeaders: async () => ({}) };
       if (name === "./TimedNarrationPlayer") return {
         TimedNarrationPlayer: class extends playerExports.TimedNarrationPlayer {
           constructor(options) {

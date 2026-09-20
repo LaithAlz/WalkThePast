@@ -1,6 +1,6 @@
 /** Client for the in-app Marble bridge (server/marble.ts). */
 import type { PreppedImage } from "./prep";
-import { api, worlds } from "./backend";
+import { api, worlds, authHeaders } from "./backend";
 
 export type MarbleModel = "marble-1.0-draft" | "marble-1.1" | "marble-1.1-plus";
 export type JobStatus = "queued" | "guide" | "painting" | "uploading" | "generating" | "downloading" | "ready" | "error";
@@ -16,7 +16,7 @@ export async function listWorlds(): Promise<WorldIndexEntry[]> {
 
 /** Every generation the server knows about, newest first (they run in the background). */
 export async function listJobs(): Promise<Job[]> {
-  const r = await fetch(api("/api/worlds/jobs"));
+  const r = await fetch(api("/api/worlds/jobs"), { headers: await authHeaders() });
   return r.ok ? ((await apiJson(r)) as Job[]) : [];
 }
 
@@ -36,7 +36,7 @@ async function apiJson(r: Response): Promise<any> {
 
 export async function getCredits(): Promise<number | null> {
   try {
-    const r = await fetch(api("/api/credits"));
+    const r = await fetch(api("/api/credits"), { headers: await authHeaders() });
     if (!r.ok) return null;
     return (await apiJson(r)).remaining_credits ?? null;
   } catch {
@@ -49,7 +49,7 @@ export type GeneratedView = { direction: "right" | "back" | "left"; azimuth: num
 
 export async function getViewProvider(): Promise<ViewProvider> {
   try {
-    const r = await fetch(api("/api/views/provider"));
+    const r = await fetch(api("/api/views/provider"), { headers: await authHeaders() });
     return r.ok ? ((await apiJson(r)).provider as ViewProvider) : null;
   } catch {
     return null;
@@ -60,7 +60,7 @@ export async function getViewProvider(): Promise<ViewProvider> {
 export async function generateViews(image: PreppedImage, context?: string, directions?: GeneratedView["direction"][]): Promise<GeneratedView[]> {
   const r = await fetch(api("/api/views/generate"), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ image: { mime: image.mime, dataBase64: image.dataBase64 }, context, directions }),
   });
   const body = await apiJson(r);
@@ -70,7 +70,7 @@ export async function generateViews(image: PreppedImage, context?: string, direc
 
 /** A Marble world guide: what to build for the whole scene, especially outside the frame (OpenAI). */
 export async function writeGuide(image: PreppedImage | null, description?: string): Promise<string> {
-  const r = await fetch(api("/api/views/guide"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image: image ? { mime: image.mime, dataBase64: image.dataBase64 } : undefined, description }) });
+  const r = await fetch(api("/api/views/guide"), { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders()) }, body: JSON.stringify({ image: image ? { mime: image.mime, dataBase64: image.dataBase64 } : undefined, description }) });
   const body = await apiJson(r);
   if (!r.ok) throw new Error(body.error ?? `guide failed (${r.status})`);
   return body.guide as string;
@@ -78,7 +78,7 @@ export async function writeGuide(image: PreppedImage | null, description?: strin
 
 /** The photograph for a text-only world, painted from the guide (OpenAI). */
 export async function imagineImage(prompt: string): Promise<{ mime: string; dataBase64: string }> {
-  const r = await fetch(api("/api/views/image"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }) });
+  const r = await fetch(api("/api/views/image"), { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders()) }, body: JSON.stringify({ prompt }) });
   const body = await apiJson(r);
   if (!r.ok) throw new Error(body.error ?? `image failed (${r.status})`);
   return body as { mime: string; dataBase64: string };
@@ -89,7 +89,7 @@ export type WorldImage = { name: string; mime: string; dataBase64: string; azimu
 export async function generateWorld(input: { name: string; description?: string; text?: string; model: MarbleModel; images: WorldImage[]; mode?: "single" | "azimuth" | "reconstruct" }): Promise<string> {
   const r = await fetch(api("/api/worlds/generate"), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ name: input.name, description: input.description, text: input.text, model: input.model, mode: input.mode, images: input.images.map((i) => ({ name: i.name, mime: i.mime, dataBase64: i.dataBase64, azimuth: i.azimuth })) }),
   });
   const body = await apiJson(r);
@@ -98,7 +98,7 @@ export async function generateWorld(input: { name: string; description?: string;
 }
 
 export async function getJob(jobId: string): Promise<Job> {
-  const r = await fetch(api(`/api/worlds/jobs/${jobId}`));
+  const r = await fetch(api(`/api/worlds/jobs/${jobId}`), { headers: await authHeaders() });
   if (!r.ok) throw new Error((await apiJson(r)).error ?? "job lookup failed");
   return (await apiJson(r)) as Job;
 }

@@ -220,6 +220,18 @@ disk — `splat_*.spz` (and `splat_full.ply` when a generation asks for it),
 relative asset paths and `resolveAsset()` in `src/viewer/world.ts` resolves them
 against R2 in production and `public/worlds/` in dev without a code change.
 
+Every `/api` route reaches a paid upstream — Marble, OpenAI — and the Worker's URL
+ships inside the public frontend bundle, so each one requires a Clerk session. The
+browser sends its session token as a bearer token and the Worker verifies the
+signature against Clerk's JWKS (`worker/auth.ts`); `CLERK_ISSUER` in `wrangler.toml`
+names the Frontend API origin. World assets under `/worlds/` stay open, because the
+viewer reads them to walk a world.
+
+This means **`VITE_CLERK_PUBLISHABLE_KEY` must be set wherever the frontend is
+built**. Without it `vite.config.ts` aliases `@clerk/react` to a stub whose
+`getToken()` returns null, so no request carries a token and every `/api` route
+answers 401.
+
 First deploy:
 
 ```sh

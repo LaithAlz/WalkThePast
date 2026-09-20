@@ -29,3 +29,26 @@ export const WORLDS_BASE = API_BASE || import.meta.env.BASE_URL.replace(/\/$/, "
 export function worlds(path: string): string {
   return `${WORLDS_BASE}${path}`;
 }
+
+/**
+ * The Clerk session token for API calls.
+ *
+ * Every /api route the Worker serves reaches a paid upstream, so it requires a signed-in
+ * caller. getToken() comes from a React hook, but the api functions below are plain
+ * functions, so App registers the getter once and they read it through here.
+ */
+let readToken: (() => Promise<string | null>) | null = null;
+
+export function setSessionTokenReader(read: (() => Promise<string | null>) | null): void {
+  readToken = read;
+}
+
+/** Authorization header for a signed-in caller, or nothing when signed out. */
+export async function authHeaders(): Promise<Record<string, string>> {
+  try {
+    const token = await readToken?.();
+    return token ? { authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}

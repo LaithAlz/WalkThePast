@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "prebuild": "wrangler types",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",

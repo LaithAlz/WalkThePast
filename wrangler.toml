@@ -52,3 +52,7 @@ OPENAI_REALTIME_MODEL = "gpt-realtime-2.1"
 # The frontend is served by Vercel, so every /api and /worlds call is cross-origin.
 # "*." matches preview deployments, which get a fresh hostname per commit.
 ALLOWED_ORIGINS = "https://walk-the-past.vercel.app,*.vercel.app,http://localhost:5173,http://localhost:4173"
+# Clerk's Frontend API origin. Session tokens are verified against its JWKS, so every paid
+# route knows who is asking — the Worker's URL is in the public bundle. Not a secret: it is
+# derivable from the publishable key the frontend already ships.
+CLERK_ISSUER = "https://engaging-horse-1989.clerk.accounts.dev"
