@@ -19,7 +19,7 @@ export type JobRecord = {
   imageMime?: string;
 };
 
-export type WorldIndexEntry = { id: string; name: string; createdAt?: string };
+export type WorldIndexEntry = { id: string; name: string; createdAt?: string; /** the source file in the world folder: source.jpg, or source.png when painted */ image?: string };
 
 export interface Env {
   /** every world folder: <worldId>/splat_*.spz, pano.png, collider.glb, source.*, world.json, and splat_full.ply when asked for */

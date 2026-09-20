@@ -73,7 +73,7 @@ const failureText = (error?: string): string => {
   return status ? `Marble refused the request (HTTP ${status}).` : error.slice(0, 90);
 };
 const buildingWorlds = (jobs: Job[]): SampleWorld[] => jobs.filter((j) => j.status !== "ready").map((j) => ({ title: j.name, place: j.status === "error" ? "FAILED" : "BUILDING", date: j.status === "error" ? "" : `${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, evidence: j.status === "error" ? failureText(j.error) : j.stage.toUpperCase(), image: j.image ?? images.mouffetard, note: j.status === "error" ? "This generation did not finish." : "Building in the background. You can leave this page.", quote: "", worldId: `job-${j.id}`, building: j.status === "error" ? undefined : j.progress, failed: j.status === "error" }));
-const generatedWorld = (w: { id: string; name: string }): SampleWorld => ({ title: w.name, place: "GENERATED WORLD", date: "", evidence: "LIVE PROVENANCE", image: worldAsset(`/worlds/${w.id}/source.jpg`), note: "Built from a photograph through Marble and classified against it.", quote: "You’re standing where the photographer stood.", worldId: w.id });
+const generatedWorld = (w: { id: string; name: string; image?: string }): SampleWorld => ({ title: w.name, place: "GENERATED WORLD", date: "", evidence: "LIVE PROVENANCE", image: worldAsset(`/worlds/${w.id}/${w.image ?? "source.jpg"}`), note: "Built from a photograph through Marble and classified against it.", quote: "You’re standing where the photographer stood.", worldId: w.id });
 
 const images = {
   atget: "/assets/atget-paris.jpg",
@@ -151,8 +151,8 @@ export default function App() {
   // building, with a percentage. The guide was chosen on the create screen
   // before Generate was ever pressed, so there is nothing to stop for here.
   const startGeneration = () => setScreen("library");
-  const openGenerated = (worldId: string, name: string) => {
-    setActiveSample({ title: name, place: "YOUR PHOTOGRAPH", date: "", evidence: "LIVE PROVENANCE", image: worldAsset(`/worlds/${worldId}/source.jpg`), note: "Generated from your photograph and classified against it.", quote: "You’re standing where the photographer stood.", worldId });
+  const openGenerated = (worldId: string, name: string, image?: string) => {
+    setActiveSample({ title: name, place: "YOUR PHOTOGRAPH", date: "", evidence: "LIVE PROVENANCE", image: worldAsset(`/worlds/${worldId}/${image ?? "source.jpg"}`), note: "Generated from your photograph and classified against it.", quote: "You’re standing where the photographer stood.", worldId });
     setExploreReturn("library");
     setEvidence(false);
     setScreen("explore", worldId);
@@ -166,7 +166,7 @@ export default function App() {
     if (sampleIndex) { const sample = sampleWorlds[+sampleIndex[1]]; if (sample) { setActiveSample(sample); setExploreReturn("samples"); } else setScreen("landing"); return; }
     void listWorlds().then((list) => {
       const w = list.find((x) => x.id === id);
-      if (w) openGenerated(w.id, w.name); else setScreen("landing");
+      if (w) openGenerated(w.id, w.name, w.image); else setScreen("landing");
     });
   }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -292,13 +292,13 @@ function SamplePicker({ onBack, onChoose }: { onBack: () => void; onChoose: (sam
 
 type LibraryWorld = { id: string; title: string; detail: string; image: string; building?: boolean; failed?: boolean; pct?: number; open?: () => void; /** absent for the sample cards, which are part of the app rather than anyone's library */ remove?: () => Promise<void> };
 
-function Library({ onNew, onOpen }: { onNew: () => void; onOpen: (worldId: string, name: string) => void }) {
-  const [generated, setGenerated] = useState<{ id: string; name: string }[]>([]);
+function Library({ onNew, onOpen }: { onNew: () => void; onOpen: (worldId: string, name: string, image?: string) => void }) {
+  const [generated, setGenerated] = useState<{ id: string; name: string; image?: string }[]>([]);
   const load = () => listWorlds().then((list) => setGenerated(list.filter((w) => !w.id.startsWith("marble-sample")))).catch(() => undefined);
   useEffect(() => { void load(); }, []);
   const jobs = useJobs(load);
   const building: LibraryWorld[] = jobs.filter((j) => j.status !== "ready").map((j) => ({ id: `job-${j.id}`, title: j.name, detail: j.status === "error" ? failureText(j.error) : `${j.stage.toUpperCase()} · ${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, image: j.image ?? images.mouffetard, building: j.status !== "error", failed: j.status === "error", pct: j.progress, remove: j.status === "error" ? () => dismissJob(j.id) : undefined }));
-  const ready: LibraryWorld[] = generated.map((w) => ({ id: w.id, title: w.name, detail: "GENERATED WORLD · WALKABLE", image: worldAsset(`/worlds/${w.id}/source.jpg`), open: () => onOpen(w.id, w.name), remove: () => deleteWorld(w.id) }));
+  const ready: LibraryWorld[] = generated.map((w) => ({ id: w.id, title: w.name, detail: "GENERATED WORLD · WALKABLE", image: worldAsset(`/worlds/${w.id}/${w.image ?? "source.jpg"}`), open: () => onOpen(w.id, w.name, w.image), remove: () => deleteWorld(w.id) }));
   const all = [...building, ...ready];
   const stillBuilding = building.filter((w) => w.building).length;
   return <main className="page library-page"><Header onUpload={onNew} onLibrary={() => undefined} /><section className="library-intro"><div><h1>Your worlds</h1><p>{ready.length} {ready.length === 1 ? "reconstruction" : "reconstructions"}{stillBuilding ? ` · ${stillBuilding} still building` : ""}</p></div><div className="actions"><button className="select">Recent</button><button className="button compact" onClick={onNew}>New world</button></div></section><section className="world-grid">{all.map((world) => <WorldCard key={world.id} world={world} onClick={world.open ?? (() => undefined)} onRemoved={load} />)}<button className="new-card" onClick={onNew}><span>+</span>Create a world</button></section></main>;

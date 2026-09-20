@@ -6,7 +6,8 @@ export type MarbleModel = "marble-1.0-draft" | "marble-1.1" | "marble-1.1-plus";
 export type JobStatus = "queued" | "guide" | "painting" | "uploading" | "generating" | "downloading" | "ready" | "error";
 export type Job = { id: string; name: string; model: MarbleModel; status: JobStatus; stage: string; progress: number; elapsedS: number; startedAt: number; hasImage: boolean; /** blob URL of the staged photograph, resolved client-side (see jobImage) */ image?: string; worldId?: string; error?: string; credits?: number; guide?: string };
 
-export type WorldIndexEntry = { id: string; name: string; createdAt?: string };
+/** `image` is the source file inside the world folder (source.jpg, or source.png for a painted one); older entries lack it. */
+export type WorldIndexEntry = { id: string; name: string; createdAt?: string; image?: string };
 /** Generated worlds on disk, newest first. */
 export async function listWorlds(): Promise<WorldIndexEntry[]> {
   const r = await fetch(worlds(`/worlds/index.json?t=${Date.now()}`), { cache: "no-store" });

@@ -185,7 +185,7 @@ export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
         await env.WORLDS.put(`${worldId}/world.json`, JSON.stringify(manifest, null, 2), { httpMetadata: { contentType: "application/json" } });
         await env.WORLDS.put(`${worldId}/marble_world.json`, JSON.stringify(world, null, 2), { httpMetadata: { contentType: "application/json" } });
         const index = await readIndex(env);
-        await writeIndex(env, [{ id: worldId, name: p.name, createdAt: new Date().toISOString() }, ...index.filter((w) => w.id !== worldId)]);
+        await writeIndex(env, [{ id: worldId, name: p.name, createdAt: new Date().toISOString(), image: sourceName }, ...index.filter((w) => w.id !== worldId)]);
       });
 
       await step.do("clear the staged uploads", async () => {

@@ -635,8 +635,19 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       const tokenData = await tokenResponse.json() as { value?: string; client_secret?: { value?: string } };
       const ephemeralKey = tokenData.value ?? tokenData.client_secret?.value;
       if (!ephemeralKey) throw new Error("The voice session did not return a client credential");
-      if (!imageResponse.ok) throw new Error("Could not load the source image");
-      const imageDataUrl = await imageToDataUrl(await imageResponse.blob());
+      // A painted world keeps its source as source.png, and older library entries still
+      // point at source.jpg; try the other name before going on without a picture. The
+      // guide and metadata carry the tour either way, so a missing image is not fatal.
+      let imageBlob: Blob | null = imageResponse.ok ? await imageResponse.blob() : null;
+      if (!imageBlob) {
+        const other = contextRef.current.world.sourceImage.replace(/source\.(jpe?g|png)(\?.*)?$/i, (_m, ext: string) => (/^jpe?g$/i.test(ext) ? "source.png" : "source.jpg"));
+        if (other !== contextRef.current.world.sourceImage) {
+          const retry = await fetch(other, { signal: controller.signal }).catch(() => null);
+          if (retry?.ok) imageBlob = await retry.blob();
+        }
+        if (!imageBlob) console.warn("[historian] source image unavailable; continuing with metadata only");
+      }
+      const imageDataUrl = imageBlob ? await imageToDataUrl(imageBlob) : null;
       if (!current()) return;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!current()) { stream.getTracks().forEach((track) => track.stop()); return; }
@@ -692,8 +703,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           item: {
             type: "message", role: "user",
             content: [
-              { type: "input_image", image_url: imageDataUrl },
-              { type: "input_text", text: "Here is the source image and metadata for the world I just entered: " + sceneMetadata(contextRef.current) },
+              ...(imageDataUrl ? [{ type: "input_image", image_url: imageDataUrl }] : []),
+              { type: "input_text", text: (imageDataUrl ? "Here is the source image and metadata for the world I just entered: " : "Here is the metadata for the world I just entered (its picture could not be attached): ") + sceneMetadata(contextRef.current) },
             ],
           },
         });

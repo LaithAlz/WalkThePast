@@ -232,13 +232,13 @@ async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: s
     await fs.writeFile(path.join(dir, "world.json"), JSON.stringify(manifest, null, 2));
     await fs.writeFile(path.join(dir, "marble_world.json"), JSON.stringify(world, null, 2));
     const indexPath = path.join(worldsDir, "index.json");
-    let index: { id: string; name: string; createdAt?: string }[] = [];
+    let index: { id: string; name: string; createdAt?: string; image?: string }[] = [];
     try {
       index = JSON.parse(await fs.readFile(indexPath, "utf8"));
     } catch {
       /* first world */
     }
-    index = [{ id, name: job.name, createdAt: new Date().toISOString() }, ...index.filter((w) => w.id !== id)];
+    index = [{ id, name: job.name, createdAt: new Date().toISOString(), image: srcName }, ...index.filter((w) => w.id !== id)];
     await fs.writeFile(indexPath, JSON.stringify(index, null, 2));
     job.worldId = id;
     job.image = undefined;
