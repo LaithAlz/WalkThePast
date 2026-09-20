@@ -440,9 +440,16 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         }
         break;
       }
-      case "error":
-        fail(event.error?.message || "Realtime voice error");
+      case "error": {
+        // Cancelling a response that already finished is a race, not a failure: the server answers
+        // "Cancellation failed: no active response found". Tearing the session down for it would
+        // end the tour every time the visitor speaks just as the historian stops.
+        const message = event.error?.message || "Realtime voice error";
+        const code = (event.error as { code?: string } | undefined)?.code ?? "";
+        if (code === "response_cancel_not_active" || /no active response/i.test(message)) { console.warn("[historian] ignored:", message); break; }
+        fail(message);
         break;
+      }
     }
   }, [answerTool, clearGuidedPause, fail, interruptNarration, queueText, send]);
 
