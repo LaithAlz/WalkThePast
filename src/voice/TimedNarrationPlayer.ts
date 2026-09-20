@@ -30,6 +30,7 @@ export interface TimedNarrationPlayerOptions {
   onCaption: (caption: string) => void;
   onState: (state: NarrationState) => void;
   onError: (error: Error) => void;
+  beforeFirstPlay?: () => void | Promise<void>;
   onComplete?: () => void;
   onReplayAvailable?: (available: boolean) => void;
   deps?: Partial<NarrationDependencies>;
@@ -128,6 +129,7 @@ export class TimedNarrationPlayer {
   private completionSent = true;
   private generation = 0;
   private frame: number | null = null;
+  private firstClipPending = true;
 
   constructor(options: TimedNarrationPlayerOptions) {
     this.options = options;
@@ -300,6 +302,18 @@ export class TimedNarrationPlayer {
       });
       audio.preload = "auto";
       audio.src = active.url;
+      if (this.firstClipPending) {
+        this.firstClipPending = false;
+        if (this.options.beforeFirstPlay) {
+          void Promise.resolve().then(() => this.options.beforeFirstPlay?.()).then(() => {
+            if (this.isCurrent(active)) this.play(active);
+          }).catch((error: unknown) => {
+            if (this.isCurrent(active)) this.fail(error);
+          });
+          this.updateState();
+          return;
+        }
+      }
       this.play(active);
     } catch (error) {
       this.fail(error);

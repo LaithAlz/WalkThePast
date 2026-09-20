@@ -18,7 +18,11 @@ type ServerEvent = {
 };
 type TextPart = { received: string; pending: string; done: boolean };
 
-export function useRealtimeHistorian(context: HistorianSceneContext) {
+/** How long an ICE drop may last before the session is declared lost. */
+const ICE_RECOVERY_MS = 8000;
+
+export function useRealtimeHistorian(context: HistorianSceneContext, options: { beforeFirstPlay?: () => void | Promise<void> } = {}) {
+  const beforeFirstPlay = options.beforeFirstPlay;
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [caption, setCaption] = useState("");
   const [userCaption, setUserCaption] = useState("");
@@ -48,6 +52,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
   const userMutedRef = useRef(true);
   const pausedRef = useRef(false);
   const pauseReasonsRef = useRef(new Set<"transport" | "detour">());
+  const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => { contextRef.current = context; }, [context]);
 
   const send = useCallback((event: { type: string; [key: string]: unknown }) => {
@@ -87,6 +92,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
     connectionRef.current?.abort();
     connectionRef.current = null;
     connectingRef.current = false;
+    clearTimeout(recoveryTimerRef.current);
+    recoveryTimerRef.current = undefined;
     const player = playerRef.current;
     playerRef.current = null;
     player?.dispose();
@@ -310,6 +317,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
           return response.json();
         },
         onCaption: (text) => { if (current()) setCaption(text); },
+        beforeFirstPlay,
         onState: (state) => {
           if (current() && state !== "idle") setStatus(state === "playing" ? "speaking" : "thinking");
         },
@@ -347,8 +355,24 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
       peerRef.current = peer;
       // WebRTC carries the microphone. Never autoplay independent remote audio.
       stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+      // "disconnected" is routinely transient: a network hop, or the tab being
+      // throttled while the pause menu is up. Tearing the session down on it
+      // loses a conversation that would have come back on its own, so only
+      // "failed" is terminal and a drop gets a window to recover first.
       peer.onconnectionstatechange = () => {
-        if (current() && (peer.connectionState === "failed" || peer.connectionState === "disconnected")) fail("Voice connection lost. Tap to reconnect.");
+        if (!current()) return;
+        const state = peer.connectionState;
+        if (state !== "disconnected") {
+          clearTimeout(recoveryTimerRef.current);
+          recoveryTimerRef.current = undefined;
+        }
+        if (state === "failed") fail("Voice connection lost. Tap to reconnect.");
+        else if (state === "disconnected" && recoveryTimerRef.current === undefined) {
+          recoveryTimerRef.current = setTimeout(() => {
+            recoveryTimerRef.current = undefined;
+            if (current() && peer.connectionState === "disconnected") fail("Voice connection lost. Tap to reconnect.");
+          }, ICE_RECOVERY_MS);
+        }
       };
       const channel = peer.createDataChannel("oai-events");
       channelRef.current = channel;
@@ -403,7 +427,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
     } catch (reason) {
       if (current()) fail(reason instanceof Error ? reason.message : "Unable to start voice");
     }
-  }, [disconnect, fail, handleEvent, send]);
+  }, [beforeFirstPlay, disconnect, fail, handleEvent, send]);
 
   return { status, caption, userCaption, error, entities, isMicMuted, canToggleMic, canReplay, isPaused, isTransportPaused, replayLastSentence, setMicrophoneMuted, toggleMic, togglePlayback, connect, disconnect, pause, resume };
 }

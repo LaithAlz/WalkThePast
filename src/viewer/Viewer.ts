@@ -39,6 +39,9 @@ export type ViewerCallbacks = {
   onNavigation?: (status: NavigationStatus) => void;
   onPauseRequest?: () => void;
   onResumeRequest?: () => void;
+  /** The browser took or gave back the cursor. Includes releases nobody asked
+   * us for — Escape, a tab switch — so the prompt tracks reality. */
+  onLockChange?: (locked: boolean) => void;
 };
 
 /** OpenCV camera (+z forward, +y down) -> three.js camera (-z forward, +y up). */
@@ -116,6 +119,7 @@ export class Viewer {
     this.controls.onPadButton = (index) => { if (index === 3) this.resetToPhotographer(); };
     this.controls.onPauseRequest = () => this.cb.onPauseRequest?.();
     this.controls.onResumeRequest = () => this.cb.onResumeRequest?.();
+    this.controls.onLockChange = (locked) => this.cb.onLockChange?.(locked);
 
     this.onKeyDown = (e) => {
       if (isTyping(e) || e.repeat) return;
@@ -296,7 +300,12 @@ export class Viewer {
   }
 
   /** While the photograph is showing, the world should not respond to input. */
+  /** Whether the app has handed input to the world. Walking preparation and
+   * reset must restore this rather than switching input on themselves. */
+  private interactive = false;
+
   setInteractive(on: boolean) {
+    this.interactive = on;
     this.controls.setEnabled(on);
   }
 
@@ -322,7 +331,7 @@ export class Viewer {
     if (this.walking?.ready) {
       this.walking.reset();
       this.camera.position.copy(this.walking.eye);
-      this.controls.enabled = true;
+      this.controls.setEnabled(this.interactive);
       this.reportWalking();
     }
   }
@@ -330,6 +339,10 @@ export class Viewer {
   setTouchMove(x: number, z: number) { this.controls.setTouchMove(x, z); }
 
   setPaused(paused: boolean) { this.controls.setPaused(paused); }
+
+  /** Capture the cursor for mouselook. Must be called from a user gesture. */
+  requestLook() { this.controls.requestLock(); }
+  releaseLook() { this.controls.releaseLock(); }
 
   setLookSensitivity(value: number) { this.controls.setSensitivity(value); }
 
@@ -368,7 +381,9 @@ export class Viewer {
       if (!motor.spawn(spawn)) throw new Error("No safe starting position. A walking spawn needs to be configured.");
       this.walking = motor;
       this.controls.setMotor(motor);
-      this.controls.enabled = true;
+      // Restore what the app asked for rather than granting input of our own:
+      // the collider usually finishes while the photo landing is still up.
+      this.controls.setEnabled(this.interactive);
       this.reportWalking();
     } catch (error) {
       if (signal.aborted || token !== this.loadToken || this.disposed) return;

@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { createNarrationHandler } from "./server/narration.ts";
 import { marbleApi } from "./server/marble.ts";
+import { fetchWithRetry } from "./server/retryFetch.ts";
 import { viewsApi } from "./server/views.ts";
 
 export default defineConfig(({ mode }) => {
@@ -43,10 +44,16 @@ function realtimeSessionEndpoint(apiKey: string | undefined, configuredModel: st
         res.end(JSON.stringify({ error: "OPENAI_API_KEY is not configured on the server" }));
         return;
       }
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      const close = () => { if (!res.writableEnded) abort(); };
+      req.once("aborted", abort);
+      res.once("close", close);
       try {
-        const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+        const response = await fetchWithRetry(fetch, "https://api.openai.com/v1/realtime/client_secrets", {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             session: {
               type: "realtime",
@@ -61,14 +68,19 @@ function realtimeSessionEndpoint(apiKey: string | undefined, configuredModel: st
               },
             },
           }),
-        });
+        }, { attempts: 3, attemptTimeoutMs: 15_000 });
         const body = await response.text();
+        if (controller.signal.aborted) return;
         res.statusCode = response.status;
         res.end(response.ok ? body : JSON.stringify({ error: "OpenAI session creation failed", status: response.status }));
       } catch (error) {
+        if (controller.signal.aborted) return;
         console.error("[realtime] session creation failed", error instanceof Error ? error.message : error);
         res.statusCode = 502;
-        res.end(JSON.stringify({ error: "Unable to reach OpenAI" }));
+        res.end(JSON.stringify({ error: "Unable to reach OpenAI after several attempts. Please try again." }));
+      } finally {
+        req.off("aborted", abort);
+        res.off("close", close);
       }
     });
   };
