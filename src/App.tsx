@@ -20,9 +20,12 @@ type Generation = { jobId: string; name: string; sources: UploadSource[] };
 type SampleWorld = { title: string; place: string; date: string; evidence: string; image: string; note: string; quote: string; worldId?: string; voicePreview?: boolean; /** progress % while a generation is still running */ building?: number; failed?: boolean };
 
 // Each screen is a URL, so refresh, back and links work: / create, /worlds, /pick, /walk/<world id or sample-N>.
-const PATHS: Record<Exclude<Screen, "explore">, string> = { landing: "/", upload: "/create", library: "/worlds", samples: "/pick" };
+// The library lives at /library, not /worlds: /worlds/ is the folder world assets are served from, and a static
+// host that serves files before the app (Vercel, the Worker's asset binding) would answer /worlds with the index.
+const PATHS: Record<Exclude<Screen, "explore">, string> = { landing: "/", upload: "/create", library: "/library", samples: "/pick" };
 function screenFromLocation(): Screen {
   const path = location.pathname.replace(/\/+$/, "") || "/";
+  if (path === "/worlds") { history.replaceState({}, "", "/library"); return "library"; } // old link
   if (path.startsWith("/walk/")) return "explore";
   return ((Object.keys(PATHS) as Exclude<Screen, "explore">[]).find((k) => PATHS[k] === path)) ?? "landing";
 }
