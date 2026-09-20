@@ -43,15 +43,19 @@ Already cloned and just need to catch up after someone adds a dependency? Run
 
 ### Authentication setup
 
-The custom email/password and Google flows need a Clerk publishable key before
-the app can start:
+Sign-in and sign-up are Clerk's own components, and they need a publishable key
+before the app can start:
 
 ```bash
 cp .env.example .env.local
 ```
 
 Set `VITE_CLERK_PUBLISHABLE_KEY` in `.env.local` to the publishable key from
-your Clerk dashboard. Keep Email + Password and Google enabled in Clerk.
+your Clerk dashboard, and keep **Email + Password** enabled there. Which methods
+appear on the card is decided by the Clerk dashboard, not by this code: enabling a
+social connection adds its button, disabling one removes it. Google is
+deliberately off — turn it back on in **Configure → SSO connections** if that
+ever changes.
 
 This is a client-only Vite app. Never put `CLERK_SECRET_KEY`, or any other
 server secret, in `.env.local` or a `VITE_*` variable. Keep secrets only in a

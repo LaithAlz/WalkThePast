@@ -2,6 +2,10 @@
  * Stand-in for @clerk/react when VITE_CLERK_PUBLISHABLE_KEY is not set (see vite.config.ts).
  * The app renders and every screen works; auth actions report that sign-in is disabled.
  * With a real key the alias is not applied and the genuine Clerk package is used.
+ *
+ * Every name App.tsx imports from @clerk/react has to appear here, or a build without a
+ * key fails at bundling rather than at runtime — which is easy to miss locally, where
+ * .env.local supplies a key and this file is never reached.
  */
 import type { ReactNode } from "react";
 
@@ -15,19 +19,28 @@ export function useAuth() {
   return { isSignedIn: false, isLoaded: true, userId: null, getToken: async () => null };
 }
 
-const disabled = { errors: [{ message: "Sign-in is disabled in this build (no Clerk key configured)." }] };
-const attempt = {
-  status: "needs_first_factor",
-  password: async () => ({ error: disabled }),
-  sso: async () => ({ error: disabled }),
-  finalize: async () => undefined,
-  verifications: { sendEmailCode: async () => undefined, verifyEmailCode: async () => ({ error: disabled }) },
-  mfa: { sendEmailCode: async () => undefined, verifyEmailCode: async () => ({ error: disabled }) },
-};
-
-export function useSignIn() {
-  return { signIn: attempt };
+/**
+ * Clerk's sign-in and sign-up buttons. There is no Clerk to open, so each renders the
+ * child it was given and says why nothing happened rather than looking broken.
+ */
+function DisabledAuthButton({ children }: { children?: ReactNode; mode?: string }) {
+  return (
+    <span
+      onClickCapture={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.alert("Sign-in is disabled in this build: VITE_CLERK_PUBLISHABLE_KEY is not set.");
+      }}
+    >
+      {children}
+    </span>
+  );
 }
-export function useSignUp() {
-  return { signUp: attempt };
+
+export const SignInButton = DisabledAuthButton;
+export const SignUpButton = DisabledAuthButton;
+
+/** Signed out by definition, so there is no account control to show. */
+export function UserButton() {
+  return null;
 }
