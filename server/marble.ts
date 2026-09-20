@@ -91,6 +91,7 @@ async function readJson<T>(req: IncomingMessage, limitBytes = 60 * 1024 * 1024):
 function send(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("content-type", "application/json");
+  res.setHeader("cache-control", "no-store"); // live state: never let the browser reuse an old answer
   res.end(JSON.stringify(body));
 }
 
@@ -222,7 +223,8 @@ async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: s
       source: { image: `./${srcName}`, fovY: 55 },
       sourceCamera: null,
       pano: files.pano ? { url: "./pano.png", yawDeg: 90 } : null,
-      bounds: { radiusM: 3.5 },
+      collider: files.collider ? { url: `./${files.collider}`, space: "splat" } : null,
+      bounds: files.collider ? null : { radiusM: 3.5 },
       credit: { title: job.name, photographer: "uploaded photograph", licence: "user upload" },
       marble: { world_id: job.marbleWorldId, model: world.model ?? job.model, world_marble_url: world.world_marble_url, files, caption: world.assets.caption, prompt: text ?? null, description: body.description ?? null, painted: srcName === "source.png" && body.images[0].name === "imagined.png", mode, inputImages: body.images.length, azimuths: body.images.map((i) => i.azimuth ?? 0) },
       notes: "Generated through the in-app Marble bridge (server/marble.ts). Align the photographer (R, nudge, L) to make provenance exact.",
@@ -265,7 +267,9 @@ export function marbleApi(opts: { apiKey?: string; openaiKey?: string; worldsDir
         if (!body.images.length && !body.description?.trim() && !body.text?.trim()) return send(res, 400, { error: "a photograph or a description is required" });
         const id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
         const name = body.name?.trim() || body.description?.trim().split(/[.\n]/)[0].slice(0, 48) || body.images[0]?.name.replace(/\.[^.]+$/, "") || "world";
-        const job: Job = { id, name, model: body.model || "marble-1.1", status: "queued", stage: "queued", startedAt: Date.now(), stageAt: Date.now() };
+        // A real photograph is known from the start: attach it now so the library card shows it immediately
+        // instead of a placeholder while the guide is being written. A painted one arrives after painting.
+        const job: Job = { id, name, model: body.model || "marble-1.1", status: "queued", stage: "queued", startedAt: Date.now(), stageAt: Date.now(), image: body.images[0] ? { mime: body.images[0].mime, dataBase64: body.images[0].dataBase64 } : undefined };
         jobs.set(id, job);
         void runJob(job, body, marble, opts.worldsDir, opts.openaiKey);
         return send(res, 202, { jobId: id });

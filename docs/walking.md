@@ -99,9 +99,9 @@ the browser reports raw hardware deltas with no window to run out of.
 - **W/S walk along the camera's horizontal heading; A/D strafe.** Pitch never
   tilts the floor: looking straight up and walking forward still travels flat.
 
-- **M releases the cursor and opens the pause menu.** While the lock is held
+- **X releases the captured mouse; P opens the pause menu.** While the lock is held
   nothing on screen can be clicked, so the way out has to be a key — a small
-  hint in the corner says which. Escape is deliberately not bound: the browser
+  hint in the corner says which. Escape is deliberately left to the browser: it
   spends it leaving pointer lock *and* leaving fullscreen, and a page cannot
   preventDefault its way out of either. It still releases the cursor, and
   `pointerlockchange` reports that like any other release, which is why the
@@ -127,10 +127,8 @@ the browser reports raw hardware deltas with no window to run out of.
   the browser's back/forward navigation.
 - Looking only happens while the lock is held, so overlay controls are only
   ever reachable with a free cursor and can never be steered through.
-- M opens the pause menu and M again resumes. Escape would be the conventional
-  key, but a browser spends it leaving fullscreen and a page cannot
-  preventDefault its way out of that, so pressing it would cost the visitor
-  their fullscreen and hand them a menu they did not ask for.
+- P opens the pause menu and P again resumes. X releases only the captured
+  mouse; Escape keeps its native browser behavior, including leaving fullscreen.
 - Because the view turns on the way to any control, the pause menu is the only
   in-world chrome: walking, looking and the voice historian are all held while
   it is up, so its buttons — resume, reset, evidence, leave — are the one place

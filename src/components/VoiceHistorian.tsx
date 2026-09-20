@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { worlds } from "../lib/backend";
 import type { EvidenceCounts, Verdict } from "../viewer/Viewer";
 import { useRealtimeHistorian } from "../voice/useRealtimeHistorian";
 import { enrichCaption, type HistoricalEntity } from "../historian/entities";
@@ -11,25 +12,44 @@ type Props = {
   hue: "green" | "amber" | "purple";
   onEntity: (entity: HistoricalEntity) => void;
   onPresentationReady?: () => void | Promise<void>;
+  captureCurrentView?: () => string | null;
   paused?: boolean;
   showMediaControls?: boolean;
+  onQuizActiveChange?: (active: boolean) => void;
 };
 
-export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, paused = false, showMediaControls = false }: Props) {
+export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, captureCurrentView, paused = false, showMediaControls = false, onQuizActiveChange }: Props) {
+  // Generated worlds carry the user's note, the world guide the scene was built from, and what the source was
+  // in their manifest; the historian must speak about that, never about a stock example.
+  const [manifestFacts, setManifestFacts] = useState<{ description?: string; guide?: string; sourceKind?: string }>({});
+  useEffect(() => {
+    if (!world.worldId) { setManifestFacts({}); return; }
+    let stop = false;
+    fetch(worlds(`/worlds/${world.worldId}/world.json`), { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m: { marble?: { prompt?: string | null; description?: string | null; painted?: boolean }; credit?: { photographer?: string } } | null) => {
+        if (stop || !m) return;
+        setManifestFacts({ description: m.marble?.description ?? undefined, guide: m.marble?.prompt ?? undefined, sourceKind: m.marble?.painted ? "photograph painted from the description" : m.credit?.photographer ?? undefined });
+      })
+      .catch(() => undefined);
+    return () => { stop = true; };
+  }, [world.worldId]);
   const voice = useRealtimeHistorian({
     world: {
       id: world.worldId ?? "unknown",
       title: world.title,
       place: world.place,
       date: world.date,
-      description: world.note,
+      description: manifestFacts.description ? `${manifestFacts.description}. ${world.note}` : world.note,
       sourceImage: world.image,
+      guide: manifestFacts.guide,
+      sourceKind: manifestFacts.sourceKind,
     },
     evidenceEnabled: evidence,
     evidenceCounts: counts,
     verdict,
-  }, { beforeFirstPlay: onPresentationReady });
-  const { pause, resume, connect, setMicrophoneMuted } = voice;
+  }, { beforeFirstPlay: onPresentationReady, captureCurrentView });
+  const { pause, resume, connect, cancelQuiz, setMicrophoneMuted } = voice;
   const connectRef = useRef(connect);
   useEffect(() => { connectRef.current = connect; }, [connect]);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -46,6 +66,10 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
   useEffect(() => {
     if (voice.error) void onPresentationReady?.();
   }, [voice.error, onPresentationReady]);
+  useEffect(() => {
+    onQuizActiveChange?.(!!voice.quiz);
+    return () => onQuizActiveChange?.(false);
+  }, [voice.quiz, onQuizActiveChange]);
   useEffect(() => {
     if (paused) pause("detour");
     else resume("detour");
@@ -86,6 +110,32 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
       window.removeEventListener("blur", release);
     };
   }, [connect, setMicrophoneMuted]);
+  const submitQuizAnswerRef = useRef(voice.submitQuizAnswer);
+  useEffect(() => { submitQuizAnswerRef.current = voice.submitQuizAnswer; }, [voice.submitQuizAnswer]);
+  useEffect(() => {
+    // Answers are accepted while the historian is still reading the choices; only an unconnected or paused session blocks them.
+    if (!voice.quiz || voice.quiz.selectedOption !== undefined || voice.status === "idle" || voice.status === "connecting" || voice.status === "error" || voice.isPaused) return;
+    const answerWithLetter = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, [contenteditable=true]") || event.altKey || event.ctrlKey || event.metaKey) return;
+      const option = ["KeyA", "KeyB", "KeyC", "KeyD"].indexOf(event.code);
+      if (option < 0) return;
+      event.preventDefault();
+      submitQuizAnswerRef.current(option);
+    };
+    window.addEventListener("keydown", answerWithLetter);
+    return () => window.removeEventListener("keydown", answerWithLetter);
+  }, [voice.quiz, voice.status, voice.isPaused]);
+  useEffect(() => {
+    if (!voice.quiz) return;
+    const cancelWithEscape = (event: KeyboardEvent) => {
+      if (event.code !== "Escape") return;
+      event.preventDefault();
+      cancelQuiz();
+    };
+    window.addEventListener("keydown", cancelWithEscape);
+    return () => window.removeEventListener("keydown", cancelWithEscape);
+  }, [voice.quiz, cancelQuiz]);
 
   return (
     <div className={`voice-historian${showMediaControls ? " has-media-controls" : ""}`}>
@@ -160,6 +210,37 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
           <span className="visually-hidden">{voice.isMicMuted ? "Unmute mic" : "Mute mic"}</span>
         </button>}
       </div>
+      {voice.quiz && <section className={`historian-quiz${voice.quiz.selectedOption !== undefined
+        ? ` is-feedback ${voice.quiz.selectedOption === voice.quiz.correctOption ? "is-correct-feedback" : "is-wrong-feedback"}`
+        : ""}`} aria-labelledby={`quiz-question-${voice.quiz.id}`}>
+        <div className="historian-quiz-heading">
+          <span>KNOWLEDGE CHECK</span>
+          <div>
+            <small>{voice.quiz.questionNumber} / {voice.quiz.totalQuestions}</small>
+            <button type="button" onClick={cancelQuiz}>Cancel quiz</button>
+          </div>
+        </div>
+        <h2 id={`quiz-question-${voice.quiz.id}`}>{voice.quiz.question}</h2>
+        <div className="historian-quiz-options">
+          {voice.quiz.options.map((option, index) => {
+            const answered = voice.quiz?.selectedOption !== undefined;
+            const selected = voice.quiz?.selectedOption === index;
+            const correct = answered && voice.quiz?.correctOption === index;
+            return <button
+              type="button"
+              key={`${voice.quiz?.id}-${index}`}
+              className={`${selected ? "is-selected" : ""}${correct ? " is-correct" : ""}${selected && !correct ? " is-wrong" : ""}`}
+              disabled={answered || voice.status === "idle" || voice.status === "connecting" || voice.status === "error" || voice.isPaused}
+              onClick={() => voice.submitQuizAnswer(index)}
+            >
+              <b>{String.fromCharCode(65 + index)}</b><span>{option}</span>
+            </button>;
+          })}
+        </div>
+        {voice.quiz.selectedOption !== undefined && <p role="status">
+          The correct answer is {String.fromCharCode(65 + voice.quiz.correctOption)} — {voice.quiz.options[voice.quiz.correctOption]}.
+        </p>}
+      </section>}
       <blockquote className={!voice.error && !voice.caption ? "is-empty" : undefined} aria-live="polite">
         {voice.error || captionParts.map((part, index) => part.entity ? (
           <button className={`caption-entity is-${part.entity.kind}`} type="button" key={`entity-${part.entity.id}-${index}`} onClick={() => onEntity(part.entity!)} title={`Explore ${part.entity.label}`}>

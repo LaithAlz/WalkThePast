@@ -132,7 +132,7 @@ export function createNarrationHandler({ apiKey, fetchImpl = fetch, timeoutMs = 
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: "marin", input: text, response_format: "wav",
-          instructions: "Read the supplied text verbatim as a warm, clear, conversational history guide. Do not add or omit words." }),
+          instructions: "Read the supplied text verbatim in the measured, confident, engaging voice of an expert museum historian. Use natural narrative cadence and brief pauses between ideas. Do not add or omit words." }),
       });
       if (!speech.ok) { await speech.body?.cancel(); throw new NarrationError(502, "Narration audio generation failed. Please retry."); }
       const audio = await readAudio(speech);
@@ -143,14 +143,27 @@ export function createNarrationHandler({ apiKey, fetchImpl = fetch, timeoutMs = 
       form.append("timestamp_granularities[]", "word");
       form.append("prompt", text);
       form.append("file", new Blob([new Uint8Array(audio)], { type: "audio/wav" }), "narration.wav");
-      const timing = await fetchImpl("https://api.openai.com/v1/audio/transcriptions", {
-        method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: controller.signal,
-      });
-      if (!timing.ok) { await timing.body?.cancel(); throw new NarrationError(502, "Narration timing preparation failed. Please retry."); }
-      const transcription = await timing.json() as { words?: unknown };
+      let transcriptionWords: unknown;
+      try {
+        const timing = await fetchImpl("https://api.openai.com/v1/audio/transcriptions", {
+          method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: controller.signal,
+        });
+        if (timing.ok) {
+          const transcription = await timing.json() as { words?: unknown };
+          transcriptionWords = transcription?.words;
+        } else {
+          // The audio is already complete and playable. Timestamp generation is
+          // an enhancement, so an upstream alignment failure must not discard it.
+          await timing.body?.cancel().catch(() => undefined);
+        }
+      } catch (error) {
+        // Timeouts and disconnected clients still cancel the entire request.
+        // Other transcription failures fall through to duration-based captions.
+        if (controller.signal.aborted) throw error;
+      }
       let words;
-      try { words = alignCaptionWords(text, transcription.words, duration); }
-      catch { words = estimateCaptionWords(text, transcription.words, duration); }
+      try { words = alignCaptionWords(text, transcriptionWords, duration); }
+      catch { words = estimateCaptionWords(text, transcriptionWords, duration); }
       if (!controller.signal.aborted) reply(200, { audio: audio.toString("base64"), words });
     } catch (error) {
       if (timedOut) reply(504, { error: "Preparing synchronized narration timed out. Please retry." });

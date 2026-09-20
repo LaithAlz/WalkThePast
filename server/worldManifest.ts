@@ -40,7 +40,10 @@ export function buildManifest(i: ManifestInput) {
     source: { image: `./${i.sourceName}`, fovY: 55 },
     sourceCamera: null,
     pano: i.files.pano ? { url: "./pano.png", yawDeg: 90 } : null,
-    bounds: { radiusM: 3.5 },
+    // Marble's collider mesh, in the splat's own frame. Without this block the viewer walks on a flat
+    // plane leashed to `bounds`, which feels like an invisible wall a few steps in.
+    collider: i.files.collider ? { url: `./${i.files.collider}`, space: "splat" } : null,
+    bounds: i.files.collider ? null : { radiusM: 3.5 },
     credit: { title: i.name, photographer: "uploaded photograph", licence: "user upload" },
     marble: {
       world_id: i.marbleWorldId,

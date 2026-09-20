@@ -159,10 +159,11 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
   const c = new FirstPersonControls(canvas, camera);
   const m = motor(null);
   c.setMotor(m);
-  let pauseRequests = 0, resumeRequests = 0;
+  let pauseRequests = 0, resumeRequests = 0, quietUnlocks = 0;
   // Mirror WorldCanvas: a pause request pauses the controller.
   c.onPauseRequest = () => { pauseRequests++; c.setPaused(true); };
   c.onResumeRequest = () => { resumeRequests++; c.setPaused(false); };
+  c.onQuietUnlock = () => { quietUnlocks++; };
   const pointer = (type, values = {}) => {
     const event = new Event(type);
     for (const [key, value] of Object.entries(values)) Object.defineProperty(event, key, { value });
@@ -258,26 +259,31 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
     c.setSensitivity(1);
     c.yaw = 0; c.pitch = 0;
 
-    // M gives the cursor back and asks for the menu. Escape is never bound:
-    // the browser spends it leaving pointer lock and fullscreen either way.
+    // Escape remains native browser behavior; X reliably gives the mouse back.
     key('Escape');
     assert.equal(pauseRequests, 0, 'Escape is left to the browser');
     assert.equal(c.locked, true, 'and our handler does not release the lock behind it');
-    key('KeyM');
-    assert.equal(pauseRequests, 1, 'M asks for the pause menu');
+    key('KeyX');
+    assert.equal(pauseRequests, 0, 'X does not open the pause menu');
+    assert.equal(quietUnlocks, 1, 'X marks the unlock as quiet so no re-entry card appears');
+    assert.equal(c.locked, false, 'X gives the captured mouse back');
+    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 2 });
+    assert.equal(c.locked, true, 'clicking after X captures the mouse and clears the prompt state');
+    key('KeyP');
+    assert.equal(pauseRequests, 1, 'P asks for the pause menu');
     assert.equal(c.locked, false, 'and hands the cursor back so the menu can be clicked');
     const pausedYaw = c.yaw;
     mouse(300, 300);
     assert.equal(c.yaw, pausedYaw, 'a paused viewer ignores the mouse');
-    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 2 });
+    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 4 });
     assert.equal(c.locked, false, 'and clicking through the menu does not re-capture the cursor');
-    key('KeyM');
-    assert.equal(resumeRequests, 1, 'M closes the pause menu');
+    key('KeyP');
+    assert.equal(resumeRequests, 1, 'P closes the pause menu');
     assert.equal(pauseRequests, 1, 'closing the menu does not re-open it');
 
     // The browser taking the lock away — Escape, a tab switch — must not leave
     // a key stuck down, or the player walks on with no way to steer.
-    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 3 });
+    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 5 });
     assert.equal(c.locked, true, 'clicking the viewport captures it again');
     key('KeyW');
     document.exitPointerLock();
@@ -303,7 +309,7 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
     pointer('pointermove', { pointerType: 'touch', clientX: 999, clientY: 400 });
     assert.equal(c.yaw, 0, 'touch without a finger down does not look');
     pointer('pointerdown', { button: 0, pointerType: 'touch', clientX: 500, clientY: 400, pointerId: 5 });
-    assert.equal(lockRequests, 2, 'and a finger never asks for pointer lock');
+    assert.equal(lockRequests, 3, 'and a finger never asks for pointer lock');
     pointer('pointermove', { pointerType: 'touch', clientX: 562, clientY: 400 });
     near(c.yaw, -62 * 0.004 * c.sensitivity, 1e-12, 'a touch swipe looks by its own delta');
     pointer('pointerup', { pointerType: 'touch', clientX: 562, clientY: 400, pointerId: 5 });
@@ -338,10 +344,10 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
     key('KeyW');
     for (let i = 0; i < 120; i++) c.update(1 / 60);
     const walkDistance = -camera.position.z;
-    m.reset(); c.clearInput(); key('KeyW'); key('ShiftLeft'); key('KeyE');
+    m.reset(); c.clearInput(); key('KeyW'); key('ShiftLeft');
     for (let i = 0; i < 120; i++) c.update(1 / 60);
     assert.ok(-camera.position.z > walkDistance * 2.3);
-    near(camera.position.y, 1.652, 0.01, 'E did not raise player');
+    near(camera.position.y, 1.652, 0.01, 'running stays grounded');
     window.dispatchEvent(new Event('blur'));
     const stopped = camera.position.clone();
     for (let i = 0; i < 60; i++) c.update(1 / 60);

@@ -150,11 +150,10 @@ everything inside the render loop.
 - Camera control is standard pointer-lock mouselook: click the viewport to
   capture the cursor, then raw mouse deltas drive unbounded yaw and ±89° pitch
   with no smoothing, acceleration or auto-turn. WASD walks and strafes along
-  the camera's horizontal heading, and M gives the cursor back. Escape is never
-  bound, since the browser spends it leaving both pointer lock and fullscreen. M opens the pause menu,
+  the camera's horizontal heading, X gives the captured mouse back, and P opens the pause menu,
   which is the only in-world chrome: it carries the controls, a persisted look
-  sensitivity slider, the evidence toggle and the way out. Not Escape, which the
-  browser spends leaving fullscreen.
+  sensitivity slider, the evidence toggle and the way out. Escape retains its
+  native browser behavior and may also leave fullscreen.
   WASD/arrows walk, Shift runs and R resets. Collision meshes enable walls, gravity,
   stairs and slopes. Without one, the viewer explicitly shows a level-ground
   preview. See [Walking and collision setup](docs/walking.md) for the manifest
@@ -183,9 +182,9 @@ request per sentence. Keep `OPENAI_API_KEY` server-side in `.env.local`; the key
 must have access to those models as well as the configured Realtime model. Both
 API routes run in Vite dev and preview; in production the Worker serves them
 (see [Deployment](#deployment)). Word boundaries are transcription estimates, so this removes
-network-induced drift without promising phoneme-perfect alignment. If spoken
-words cannot be matched to the original text, playback stops with a retry message
-instead of falling back to invented timestamps. See the official
+network-induced drift without promising phoneme-perfect alignment. If the timing
+service fails or its words cannot be matched to the original text, the valid audio
+still plays with captions estimated across its observed duration. See the official
 [speech generation](https://developers.openai.com/api/docs/guides/text-to-speech)
 and [word timestamp](https://developers.openai.com/api/docs/guides/speech-to-text#timestamps)
 documentation. Run `npm test` for playback, network, interruption, and timing checks.

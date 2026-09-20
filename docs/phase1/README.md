@@ -6,8 +6,8 @@ Goal: a judge sees the original photograph, fades into the matching 3D view, and
 
 | Requirement | Implementation |
 |---|---|
-| WASD movement | `viewer/src/controls.ts` — walks on the ground plane relative to yaw, `Q/E` height, `Shift` run |
-| Mouse look | pointer lock on canvas click, `Esc` releases |
+| WASD movement | `src/viewer/controls.ts` — walks on the ground plane relative to yaw; `Shift` runs |
+| Mouse look | pointer lock on canvas click; `X` releases the captured mouse |
 | Optional gamepad | left stick walk, right stick look, triggers run, `A` enter, `Y` photographer, `X` wipe |
 | Reset-to-photographer | `R` eases the camera back (position, orientation, FOV) over 0.9 s; `Shift+R` ignores a saved pose |
 | Photo ↔ world wipe | landing shows the photograph → `Enter` crossfades into the 3D pose; hold `Tab` to peek at the photo; `V` shows a draggable divider (photo left, world right) |

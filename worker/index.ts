@@ -10,7 +10,7 @@ import { Marble } from "../server/marbleClient.ts";
 import { worldGuide, imagineImage } from "../server/views.ts";
 import { fetchWithRetry } from "../server/retryFetch.ts";
 import { narrate } from "./narration.ts";
-import { deleteJob, getJob, listJobs, publicJob, putJob, reconcile } from "./store.ts";
+import { deleteJob, getJob, listJobs, publicJob, putJob, reconcile, readIndex, writeIndex } from "./store.ts";
 import type { Env } from "./types.ts";
 import { base64ToBytes } from "./marbleWorkflow.ts";
 import { allowedOrigin, preflight, withCors, withPublicCors } from "./cors.ts";
@@ -126,6 +126,30 @@ async function api(request: Request, env: Env, path: string): Promise<Response> 
 
   if (path === "/api/worlds/generate" && request.method === "POST") {
     return startGeneration(request, env);
+  }
+
+  // Remove a generated world: its folder in R2, and its line in the library index.
+  const worldOne = path.match(/^\/api\/worlds\/([A-Za-z0-9][A-Za-z0-9._-]*)$/);
+  // "generate" and "jobs" are routes, not world ids, so they must never be treated as one.
+  if (worldOne && request.method === "DELETE" && !["generate", "jobs"].includes(worldOne[1])) {
+    const id = worldOne[1];
+    let removed = 0;
+    // A world folder holds a handful of objects, but page anyway rather than assume.
+    for (let cursor: string | undefined; ; ) {
+      const listed = await env.WORLDS.list({ prefix: `${id}/`, cursor, limit: 1000 });
+      const keys = listed.objects.map((o) => o.key);
+      if (keys.length) {
+        await env.WORLDS.delete(keys);
+        removed += keys.length;
+      }
+      if (!listed.truncated) break;
+      cursor = listed.cursor;
+    }
+    const index = await readIndex(env);
+    const remaining = index.filter((w) => w.id !== id);
+    if (removed === 0 && remaining.length === index.length) return json({ error: "no such world" }, 404);
+    if (remaining.length !== index.length) await writeIndex(env, remaining);
+    return json({ deleted: id, objects: removed });
   }
 
   if (path === "/api/worlds/jobs") {

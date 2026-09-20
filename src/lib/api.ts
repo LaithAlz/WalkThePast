@@ -9,14 +9,14 @@ export type Job = { id: string; name: string; model: MarbleModel; status: JobSta
 export type WorldIndexEntry = { id: string; name: string; createdAt?: string };
 /** Generated worlds on disk, newest first. */
 export async function listWorlds(): Promise<WorldIndexEntry[]> {
-  const r = await fetch(worlds(`/worlds/index.json?t=${Date.now()}`));
+  const r = await fetch(worlds(`/worlds/index.json?t=${Date.now()}`), { cache: "no-store" });
   const list = r.ok ? ((await apiJson(r)) as WorldIndexEntry[]) : [];
   return list.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 }
 
 /** Every generation the server knows about, newest first (they run in the background). */
 export async function listJobs(): Promise<Job[]> {
-  const r = await fetch(api("/api/worlds/jobs"), { headers: await authHeaders() });
+  const r = await fetch(api("/api/worlds/jobs"), { headers: await authHeaders(), cache: "no-store" });
   return r.ok ? ((await apiJson(r)) as Job[]) : [];
 }
 
@@ -98,7 +98,7 @@ export async function generateWorld(input: { name: string; description?: string;
 }
 
 export async function getJob(jobId: string): Promise<Job> {
-  const r = await fetch(api(`/api/worlds/jobs/${jobId}`), { headers: await authHeaders() });
+  const r = await fetch(api(`/api/worlds/jobs/${jobId}`), { headers: await authHeaders(), cache: "no-store" });
   if (!r.ok) throw new Error((await apiJson(r)).error ?? "job lookup failed");
   return (await apiJson(r)) as Job;
 }
@@ -107,4 +107,16 @@ export async function getJob(jobId: string): Promise<Job> {
 export function historicalPrompt(place?: string, year?: string): string {
   const where = [place, year].filter(Boolean).join(", ");
   return `A photorealistic reconstruction of ${where || "this historical photograph"} exactly as photographed: keep the composition, architecture, materials and lighting of the photograph faithful, extend the street and buildings beyond the frame in the same period style, no picture frame, no border, no modern objects.`;
+}
+
+/** Delete a generated world: its folder in R2 and its line in the library index. */
+export async function deleteWorld(worldId: string): Promise<void> {
+  const r = await fetch(api(`/api/worlds/${encodeURIComponent(worldId)}`), { method: "DELETE", headers: await authHeaders() });
+  if (!r.ok) throw new Error((await apiJson(r))?.error ?? `could not delete that world (${r.status})`);
+}
+
+/** Take a finished or failed generation off the library shelf. */
+export async function dismissJob(jobId: string): Promise<void> {
+  const r = await fetch(api(`/api/worlds/jobs/${encodeURIComponent(jobId)}`), { method: "DELETE", headers: await authHeaders() });
+  if (!r.ok) throw new Error((await apiJson(r))?.error ?? `could not dismiss that generation (${r.status})`);
 }

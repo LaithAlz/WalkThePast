@@ -83,6 +83,7 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
 function send(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("content-type", "application/json");
+  res.setHeader("cache-control", "no-store"); // live state: never let the browser reuse an old answer
   res.end(JSON.stringify(body));
 }
 
