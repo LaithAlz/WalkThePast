@@ -82,6 +82,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
   const openingPendingRef = useRef(false);
   /** a quiz card held back until the words spoken before it have been heard */
   const pendingQuizRef = useRef<HistorianQuiz | null>(null);
+  /** the response that asked for the pending card; speech from any later reply reveals it */
+  const pendingQuizResponseRef = useRef<string | null>(null);
   const spokeDuringHoldRef = useRef(false); // server VAD heard speech during this hold
   useEffect(() => { contextRef.current = context; }, [context]);
 
@@ -301,8 +303,10 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         // The call arrives the instant it is written, well before the lead-in has been
         // spoken. The card waits for the player to fall silent so the words come first.
         const state = playerRef.current?.state;
-        if (state === "playing" || state === "buffering") pendingQuizRef.current = nextQuiz;
-        else setQuiz(nextQuiz);
+        if (state === "playing" || state === "buffering") {
+          pendingQuizRef.current = nextQuiz;
+          pendingQuizResponseRef.current = activeResponseRef.current;
+        } else setQuiz(nextQuiz);
         output = { status: "question_displayed", questionNumber: nextQuiz.questionNumber, totalQuestions: nextQuiz.totalQuestions };
       } else output = { error: "invalid_quiz_question" };
     } else if (call.name === "recordQuizAnswer") {
@@ -431,7 +435,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     part.pending = remainder;
     part.done = final;
     textPartsRef.current.set(key, part);
-    for (const clip of clips) playerRef.current?.enqueue(clip);
+    for (const clip of clips) playerRef.current?.enqueue(clip, event.response_id);
   }, []);
 
   const handleEvent = useCallback((event: ServerEvent) => {
@@ -583,6 +587,15 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           }
         },
         onReplayAvailable: (available) => { if (current()) setCanReplay(available); },
+        onClipStart: (tag) => {
+          // The first words of the reply that follows the card's tool call are the cue.
+          const pending = pendingQuizRef.current;
+          if (!current() || !pending || quizRef.current?.id !== pending.id) return;
+          if (tag && tag !== pendingQuizResponseRef.current) {
+            setQuiz(pending);
+            pendingQuizRef.current = null;
+          }
+        },
         onComplete: () => {
           if (!current() || activeResponseRef.current || responseRequestedRef.current || toolContinuationRef.current) return;
           setStatus("listening");

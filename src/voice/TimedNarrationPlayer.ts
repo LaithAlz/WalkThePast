@@ -33,6 +33,8 @@ export interface TimedNarrationPlayerOptions {
   beforeFirstPlay?: () => void | Promise<void>;
   onComplete?: () => void;
   onReplayAvailable?: (available: boolean) => void;
+  /** a clip is about to play; `tag` is what enqueue() was given for it */
+  onClipStart?: (tag: string | undefined, text: string) => void;
   deps?: Partial<NarrationDependencies>;
 }
 
@@ -47,6 +49,8 @@ const WORDS_PER_CARD = 14;
 
 interface QueuedClip {
   text: string;
+  /** who queued it: the response id, so a listener can tell one reply's speech from the next */
+  tag?: string;
   status: "queued" | "loading" | "ready";
   controller?: AbortController;
   narration?: TimedNarration;
@@ -54,6 +58,7 @@ interface QueuedClip {
 
 interface ActiveClip {
   text: string;
+  tag?: string;
   narration: TimedNarration;
   audio: NarrationAudio;
   url: string;
@@ -149,7 +154,7 @@ export class TimedNarrationPlayer {
     return !this.disposed && this.inputFinished && !this.active && this.queue.length === 0 && this.last !== null;
   }
 
-  enqueue(text: string): void {
+  enqueue(text: string, tag?: string): void {
     if (this.disposed) return;
     const normalized = text.trim().replace(/\s+/gu, " ");
     if (!normalized) return;
@@ -161,7 +166,7 @@ export class TimedNarrationPlayer {
     }
     this.inputFinished = false;
     this.completionSent = false;
-    this.queue.push({ text: normalized, status: "queued" });
+    this.queue.push({ text: normalized, tag, status: "queued" });
     this.pump();
   }
 
@@ -266,6 +271,7 @@ export class TimedNarrationPlayer {
       const audio = this.deps.createAudio();
       const active: ActiveClip = {
         text: clip.text,
+        tag: clip.tag,
         narration: clip.narration!,
         audio,
         url: this.deps.createAudioUrl(clip.narration!.audio),
@@ -277,6 +283,7 @@ export class TimedNarrationPlayer {
         listeners: [],
       };
       this.active = active;
+      this.options.onClipStart?.(clip.tag, clip.text);
       const listen = (event: string, callback: () => void) => {
         const listener: EventListener = () => { if (this.isCurrent(active)) callback(); };
         active.listeners.push([event, listener]);
