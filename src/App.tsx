@@ -66,20 +66,9 @@ const worlds = [
   { title: "Corso Buenos Aires", detail: "MILAN · 1913 · 29% SOURCE-VISIBLE", image: images.omnibus },
 ];
 
-const sampleWorlds: SampleWorld[] = [
-  { title: "Hall of Mirrors", place: "VERSAILLES, FRANCE", date: "c. 1895", evidence: "LIVE PROVENANCE", image: "/worlds/marble-versailles-hall-of-mirrors/source.jpg", note: "Walked from a public-domain photochrom — solid floor, walls and gravity from Marble's collision mesh.", quote: "The gallery runs on past where the photochrom could see.", worldId: "marble-versailles-hall-of-mirrors" },
-  { title: "Giza Plateau", place: "GIZA, EGYPT", date: "", evidence: "LIVE PROVENANCE", image: "/worlds/marble-giza/source.jpg", note: "A real reconstruction — 1.92M Gaussians, classified against the source image as you walk.", quote: "You’re standing where the source camera stood.", worldId: "marble-giza", voicePreview: true },
-  { title: "Rue Cardinale", place: "PARIS, FRANCE", date: "1922", evidence: "LIVE PROVENANCE", image: "/worlds/marble-paris-cropped/source.jpg", note: "Eugène Atget's plate, reconstructed from his camera position — 2M Gaussians classified against the photograph as you walk.", quote: "You’re standing where Atget stood.", worldId: "marble-paris-cropped" },
-  { title: "Rue de la Montagne", place: "PARIS, FRANCE", date: "1898", evidence: "41% SOURCE-VISIBLE", image: images.atget, note: "A quiet Paris street, reconstructed from Atget's camera position.", quote: "You’re standing where the original photographer stood." },
-  { title: "Rue Mouffetard", place: "PARIS, FRANCE", date: "1898", evidence: "41% SOURCE-VISIBLE", image: images.mouffetard, note: "Market life and facades along one of Paris's oldest streets.", quote: "The market continues beyond the edge of the original plate." },
-  { title: "Mulberry Street", place: "NEW YORK, USA", date: "1906", evidence: "38% SOURCE-VISIBLE", image: images.mulberry, note: "A dense Lower East Side street shaped by migration and trade.", quote: "The crowd is evidence; the street beyond it is carefully inferred." },
-  { title: "Rue Montmartre", place: "PARIS, FRANCE", date: "1900", evidence: "44% SOURCE-VISIBLE", image: images.montmartre, note: "The boulevard at the turn of the century, seen at street level.", quote: "These buildings are anchored to what the camera captured." },
-  { title: "Boulevard de la Madeleine", place: "PARIS, FRANCE", date: "1902", evidence: "52% SOURCE-VISIBLE", image: images.boulevard, note: "A broad avenue of carriages, storefronts, and early city movement.", quote: "This is our most evidence-rich sample world." },
-];
-
-const gizaWorld = sampleWorlds.find((world) => world.worldId === "marble-giza")!;
-const voicePreviewPrefix = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/llm-voice`;
-const voicePreview = location.pathname === voicePreviewPrefix || location.pathname.startsWith(`${voicePreviewPrefix}/`);
+// Emptied for a clean slate: worlds come from public/worlds/index.json as they
+// are generated. Nothing is hardcoded, so the picker is blank until one lands.
+const sampleWorlds: SampleWorld[] = [];
 
 export default function App() {
   const [screen, setScreenState] = useState<Screen>(screenFromLocation);
@@ -96,7 +85,7 @@ export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [evidence, setEvidence] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [activeSample, setActiveSample] = useState<SampleWorld>(sampleWorlds[0]);
+  const [activeSample, setActiveSample] = useState<SampleWorld | null>(sampleWorlds[0] ?? null);
   const [exploreReturn, setExploreReturn] = useState<"library" | "samples">("samples");
   const { isSignedIn } = useAuth();
 
@@ -106,7 +95,7 @@ export default function App() {
 
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
-      if (screen !== "explore" && !voicePreview) return;
+      if (screen !== "explore") return;
       if (document.querySelector(".explore-page.is-suspended")) return;
       if (event.key.toLowerCase() === "e" && !event.repeat) setEvidence((value) => !value);
       if (event.code === "Space") { event.preventDefault(); setSpeaking(true); }
@@ -117,7 +106,16 @@ export default function App() {
   }, [screen]);
 
   const walkIdOf = (sample: SampleWorld) => sample.worldId ?? `sample-${sampleWorlds.indexOf(sample)}`;
-  const explore = () => { setActiveSample(sampleWorlds[0]); setExploreReturn("library"); setEvidence(false); setScreen("explore", walkIdOf(sampleWorlds[0])); };
+  // With no built-in samples left, "walk one of ours" has nothing to open directly,
+  // so it shows the picker instead of dead-ending.
+  const explore = () => {
+    const first = sampleWorlds[0];
+    setExploreReturn("library");
+    setEvidence(false);
+    if (!first) { setScreen("samples"); return; }
+    setActiveSample(first);
+    setScreen("explore", walkIdOf(first));
+  };
   const chooseSample = (sample: SampleWorld) => { setActiveSample(sample); setExploreReturn("samples"); setEvidence(false); setScreen("explore", walkIdOf(sample)); };
   // Generation runs in the background on the server: the library shows it building, with a percentage.
   const startGeneration = () => setScreen("library");
@@ -131,7 +129,7 @@ export default function App() {
   useEffect(() => {
     if (screen !== "explore") return;
     const id = walkIdFromLocation();
-    if (id === walkIdOf(activeSample)) return;
+    if (activeSample && id === walkIdOf(activeSample)) return;
     const sampleIndex = /^sample-(\d+)$/.exec(id);
     if (sampleIndex) { const sample = sampleWorlds[+sampleIndex[1]]; if (sample) { setActiveSample(sample); setExploreReturn("samples"); } else setScreen("landing"); return; }
     void listWorlds().then((list) => {
@@ -142,12 +140,11 @@ export default function App() {
 
   const openAuth = (mode: AuthMode) => { setAuthMode(mode); setScreen("auth"); };
 
-  if (voicePreview) return <Explore world={gizaWorld} evidence={evidence} speaking={speaking} autoEnter voice onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => location.assign(import.meta.env.BASE_URL)} />;
   if (screen === "auth") return <Auth mode={authMode} onBack={() => setScreen("landing")} onAuthenticated={() => setScreen("library")} onModeChange={setAuthMode} />;
   if (screen === "upload") return <Upload onBack={() => setScreen("landing")} onGenerate={startGeneration} onExplore={explore} onAuth={() => openAuth("signup")} onLogin={() => openAuth("login")} />;
   if (screen === "samples") return <SamplePicker onBack={() => setScreen("landing")} onChoose={chooseSample} />;
   if (screen === "library") return <Library onNew={() => setScreen("upload")} onExplore={explore} onOpen={openGenerated} />;
-  if (screen === "explore") return <Explore world={activeSample} evidence={evidence} speaking={speaking} autoEnter={activeSample.voicePreview} voice={!!activeSample.worldId} onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => setScreen(exploreReturn)} />;
+  if (screen === "explore" && activeSample) return <Explore world={activeSample} evidence={evidence} speaking={speaking} autoEnter={activeSample.voicePreview} voice={!!activeSample.worldId} onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => setScreen(exploreReturn)} />;
   return <Landing onUpload={() => setScreen("upload")} onLogin={() => openAuth("login")} onSignUp={() => openAuth("signup")} onExplore={() => setScreen("samples")} />;
 }
 
