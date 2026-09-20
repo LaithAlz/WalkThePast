@@ -8,6 +8,10 @@ export type HistorianSceneContext = {
     date: string;
     description: string;
     sourceImage: string;
+    /** the world guide the scene was generated from, when the manifest records one */
+    guide?: string;
+    /** "uploaded photograph", "painted from the description", or similar, from the manifest's credit */
+    sourceKind?: string;
   };
   evidenceEnabled: boolean;
   evidenceCounts: EvidenceCounts | null;
@@ -33,11 +37,11 @@ Every visual answer should move through three beats: what is visible; what it mo
 
 Use getCurrentWorld and getCurrentEvidenceState when they add useful context. For broader historical questions call getHistoricalContext; for spatially mapped nearby landmarks call getNearbyPOI. A missing tool label means only that a reviewed label or coordinate is unavailable; it does not prevent you from interpreting the current still using visual evidence and established period context. Treat SOURCE_VISIBLE as present in the source image, OCCLUDED_INFERRED as spatially reconstructed behind visible surfaces, and UNSUPPORTED as beyond the source camera's direct support. These are provenance categories, not judgments about the quality of the technology or the historical plausibility of a feature.
 
-Good visual narration sounds like: "You are looking at a low, rectilinear stone feature set along the ceremonial approach. Its exact identification is not marked here, but in an Old Kingdom funerary landscape a form like this most likely belonged to the architecture that organized movement, offerings, or ritual access. Such structures made royal power tangible by controlling how people approached sacred space." This is better than listing pixels, apologizing, or refusing to interpret the scene.
+Good visual narration sounds like: "You are looking at a low, rectilinear stone feature set along the ceremonial approach. Its exact identification is not marked here, but in a landscape of this period a form like this most likely belonged to the architecture that organized movement, offerings, or ritual access. Such structures made royal power tangible by controlling how people approached sacred space." This is better than listing pixels, apologizing, or refusing to interpret the scene.
 
-For the first response, speak as a historical guide and give a vivid two- or three-sentence introduction to the Giza Plateau. Lead with established history: the plateau's Old Kingdom pyramid complexes were built roughly 4,500 years ago and are associated with the pharaohs Khufu, Khafre, and Menkaure. Briefly explain that these monuments belonged to larger royal funerary landscapes, then invite the visitor to ask a question. Do not mention the illustration, reconstruction, Gaussian splats, source limitations, evidence labels, or uncertainty in this opening. Do not describe unverified image details as historical fact.
+For the first response, speak as a historical guide and give a vivid two- or three-sentence introduction to the place and period of THIS world, taken from the world metadata you were given: its title, place, date, description and, when present, the world guide that describes the scene. Lead with established history of that place and time. If the metadata is vague, infer the place and era from the source image and say so plainly. Never introduce or describe a different place than the one in the metadata.
 
-A good opening sounds like: "Welcome to the Giza Plateau, where the pyramid complexes of Khufu, Khafre, and Menkaure have stood for roughly 4,500 years. Built during Egypt's Old Kingdom, these monuments formed part of vast royal funerary landscapes that joined royal power, religious belief, and immense human organization. We might begin with how these complexes were built and used. I'll pause here for you."
+A good opening names the actual place and period in the first sentence, gives one or two established facts about what stood there and who used it, and then opens the first thread of a guided tour.
 `.trim();
 
 export const HISTORIAN_TOOLS = [
@@ -146,15 +150,10 @@ export function runHistorianTool(name: string, args: Record<string, unknown>, co
     case "getCurrentWorld":
       return {
         ...context.world,
-        reconstruction: {
-          format: "Gaussian splat",
-          gaussianCount: 1_920_000,
-          generator: "Marble 1.1",
-          metricScaleVerified: false,
-        },
+        reconstruction: { format: "Gaussian splat", generator: "Marble", metricScaleVerified: false },
         source: {
-          type: "modern stylized stock illustration",
-          isPrimaryHistoricalEvidence: false,
+          type: context.world.sourceKind ?? "the photograph this world was generated from",
+          isPrimaryHistoricalEvidence: context.world.sourceKind === "uploaded photograph",
           guidance: "Use the current rendered view for visual interpretation and established period context for historical meaning; reserve provenance caveats for explicit evidence questions.",
         },
       };
@@ -180,9 +179,10 @@ export function runHistorianTool(name: string, args: Record<string, unknown>, co
       return {
         question: args.question,
         reviewedContext: [
-          "The Giza pyramid complex is on the Giza Plateau near Cairo, Egypt.",
-          "Its best-known monuments include the pyramids associated with Khufu, Khafre, and Menkaure, as well as the Great Sphinx and related temples and cemeteries.",
-          "The major pyramid complexes date to Egypt's Old Kingdom, but this demo does not yet include claim-level citations or spatially mapped monuments.",
+          `This world: ${[context.world.title, context.world.place, context.world.date].filter(Boolean).join(", ")}.`,
+          ...(context.world.description ? [`Description: ${context.world.description}`] : []),
+          ...(context.world.guide ? [`World guide the scene was built from: ${context.world.guide}`] : []),
+          "This demo does not yet include claim-level citations or spatially mapped monuments.",
         ],
         sourceLimitations: [
           "The visual world is a spatial historical reconstruction rather than a primary archaeological record.",
@@ -199,11 +199,9 @@ export function sceneMetadata(context: HistorianSceneContext): string {
   return JSON.stringify({
     world: context.world,
     source: {
-      type: "modern stylized stock illustration",
-      dimensions: [512, 512],
-      reconstruction: "1,920,000 Gaussian splats",
-      sourceCamera: "unconfirmed; defaults to splat origin",
-      provenanceWarning: "Classification is against the illustration and is not historical verification.",
+      type: context.world.sourceKind ?? "the photograph this world was generated from",
+      reconstruction: "Gaussian splats generated by Marble from the source image",
+      provenanceWarning: "Classification is against the source image and is not historical verification.",
     },
   });
 }

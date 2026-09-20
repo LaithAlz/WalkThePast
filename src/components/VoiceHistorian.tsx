@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { worlds } from "../lib/backend";
 import type { EvidenceCounts, Verdict } from "../viewer/Viewer";
 import { useRealtimeHistorian } from "../voice/useRealtimeHistorian";
 import { enrichCaption, type HistoricalEntity } from "../historian/entities";
@@ -18,14 +19,31 @@ type Props = {
 };
 
 export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, captureCurrentView, paused = false, showMediaControls = false, onQuizActiveChange }: Props) {
+  // Generated worlds carry the user's note, the world guide the scene was built from, and what the source was
+  // in their manifest; the historian must speak about that, never about a stock example.
+  const [manifestFacts, setManifestFacts] = useState<{ description?: string; guide?: string; sourceKind?: string }>({});
+  useEffect(() => {
+    if (!world.worldId) { setManifestFacts({}); return; }
+    let stop = false;
+    fetch(worlds(`/worlds/${world.worldId}/world.json`), { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m: { marble?: { prompt?: string | null; description?: string | null; painted?: boolean }; credit?: { photographer?: string } } | null) => {
+        if (stop || !m) return;
+        setManifestFacts({ description: m.marble?.description ?? undefined, guide: m.marble?.prompt ?? undefined, sourceKind: m.marble?.painted ? "photograph painted from the description" : m.credit?.photographer ?? undefined });
+      })
+      .catch(() => undefined);
+    return () => { stop = true; };
+  }, [world.worldId]);
   const voice = useRealtimeHistorian({
     world: {
       id: world.worldId ?? "unknown",
       title: world.title,
       place: world.place,
       date: world.date,
-      description: world.note,
+      description: manifestFacts.description ? `${manifestFacts.description}. ${world.note}` : world.note,
       sourceImage: world.image,
+      guide: manifestFacts.guide,
+      sourceKind: manifestFacts.sourceKind,
     },
     evidenceEnabled: evidence,
     evidenceCounts: counts,

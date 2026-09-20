@@ -580,7 +580,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           type: "response.create",
           response: {
             output_modalities: ["text"],
-            instructions: "Give the historical opening now. Sound like an expert public historian, lead with established facts about the Giza Plateau and its Old Kingdom pyramid complexes, and establish the first meaningful thread of a guided tour. Do not mention the image, reconstruction, technology, provenance, or source limitations in this opening. End with: I'll pause here for you.",
+            instructions: "Give the historical opening now. Sound like an expert public historian, name the actual place and period from the world metadata you were just given (title, place, date, description and world guide; if those are vague, infer them from the source image and say so), lead with established facts about that place and time, and establish the first meaningful thread of a guided tour. Never talk about a different place than the one in the metadata. Do not mention the image, reconstruction, technology, provenance, or source limitations in this opening. End with: I'll pause here for you.",
           },
         });
       };
