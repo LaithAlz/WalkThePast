@@ -119,11 +119,13 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
 
   const scheduleGuidedContinuation = useCallback(() => {
     clearGuidedPause();
-    if (quizRef.current || pausedRef.current || userSpeakingRef.current || activeResponseRef.current || responseRequestedRef.current
+    // A held key means the visitor is about to speak: the tour must not talk over them,
+    // and a continuation requested in that moment races their own turn and cancels it.
+    if (quizRef.current || pausedRef.current || userSpeakingRef.current || holdRef.current || activeResponseRef.current || responseRequestedRef.current
       || channelRef.current?.readyState !== "open" || playerRef.current?.state !== "idle") return;
     guidedPauseTimerRef.current = setTimeout(() => {
       guidedPauseTimerRef.current = undefined;
-      if (quizRef.current || pausedRef.current || userSpeakingRef.current || activeResponseRef.current || responseRequestedRef.current
+      if (quizRef.current || pausedRef.current || userSpeakingRef.current || holdRef.current || activeResponseRef.current || responseRequestedRef.current
         || channelRef.current?.readyState !== "open" || playerRef.current?.state !== "idle") return;
       const quizDue = guidedPauseCountRef.current >= 3;
       if (quizDue) guidedPauseCountRef.current = 0;
@@ -226,6 +228,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       // (speech_started); a tap with nothing said resumes exactly where it was.
       holdRef.current = true;
       spokeDuringHoldRef.current = false;
+      clearGuidedPause();
       playerRef.current?.pause();
       setStatus("listening");
     } else if (holdRef.current) {
@@ -456,6 +459,9 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         break;
       case "input_audio_buffer.speech_stopped":
         userSpeakingRef.current = false;
+        // Whatever the server creates from here on is its answer to the visitor. A cancel
+        // requested for a continuation the visitor talked over must not land on it.
+        cancelRequestedResponseRef.current = false;
         if (!pausedRef.current) setStatus("thinking");
         break;
       case "conversation.item.input_audio_transcription.delta":
