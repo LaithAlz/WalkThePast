@@ -31,10 +31,25 @@ export type MarbleEvent = {
   images: { key: string; name: string; mime: string; azimuth?: number }[];
 };
 
-/** Marble polls every 6s in the Vite bridge; keep the same cadence, with a ceiling so a
- *  stuck operation fails the instance instead of sleeping for a year. */
-const POLL_MS = 6_000;
-const MAX_POLLS = 400; // 40 minutes
+/**
+ * How often to ask Marble whether it has finished.
+ *
+ * Every poll is an external subrequest, and a Worker on the free plan gets 50 of those per
+ * invocation — sleeping between steps does not give them back. At a flat six seconds a
+ * generation that ran longer than about five minutes exhausted the budget and died partway
+ * with "Too many subrequests", which is what happened to marble-1.1 runs.
+ *
+ * So poll quickly at first, while the stage text is still changing and someone is likely
+ * watching, then settle into a slower rhythm. The guide, the upload, the generate call and
+ * the downloads need roughly a dozen subrequests between them, so the ceiling below leaves
+ * those room and still covers a quarter of an hour.
+ */
+const POLL_FAST_MS = 6_000;
+const POLL_SLOW_MS = 30_000;
+/** how many polls keep the fast cadence before backing off */
+const FAST_POLLS = 10;
+/** 10 x 6s + 22 x 30s covers twelve minutes and leaves the budget room for a PLY export */
+const MAX_POLLS = 32;
 
 export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
   async run(event: WorkflowEvent<MarbleEvent>, step: WorkflowStep) {
@@ -117,9 +132,9 @@ export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
           credits = poll.credits ?? undefined;
           break;
         }
-        await step.sleep(`wait ${i}`, POLL_MS);
+        await step.sleep(`wait ${i}`, i < FAST_POLLS ? POLL_FAST_MS : POLL_SLOW_MS);
       }
-      if (!world) throw new NonRetryableError("Marble did not finish in time");
+      if (!world) throw new NonRetryableError("Marble was still working after twelve minutes, so this generation was given up on. The world may still finish on Marble's side.");
 
       // 6. Pull the world into R2. One step per asset: a dropped 100 MB splat retries alone.
       const worldId = `${slug(p.name)}-${p.jobId.slice(0, 6)}`;
