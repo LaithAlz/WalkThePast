@@ -67,35 +67,66 @@ that scene must wait for an aligned mesh from the pipeline.
 
 ## Controls and behavior
 
-Nothing needs a button held or a pointer captured. There is deliberately no
-click-to-capture (pointer lock) and no drag-to-look: you turn by moving.
+Standard pointer-lock mouselook. Click the viewport to capture the cursor and
+the browser reports raw hardware deltas with no window to run out of.
 
-- **Move the cursor** over the scene to turn: horizontal movement yaws,
-  vertical movement pitches. On a trackpad that is a one-finger swipe.
-- **Hold the cursor against the left or right edge** and it keeps yawing.
-  Cursor travel is bounded by the window, so without this you can only turn as
-  far as one sweep of the screen buys you and then stop dead. The rate ramps
-  with the square of how far the cursor is into a margin of
-  `clamp(48, width × 0.12, 120)` px, so it barely moves as you enter the margin
-  and reaches `edgeTurnSpeed` (2.2 rad/s, about a full turn in three seconds)
-  hard against the edge. Yaw only: pitch is clamped to just under a quarter
-  turn, which is ~390 px of travel and fits on any screen, so a vertical
-  equivalent would buy nothing and would creep the view whenever the cursor
-  neared the toolbar.
-- **Scroll** to turn as well, which is a two-finger swipe. Scroll is banked
-  and eased out over a few frames, so a notched wheel glides instead of
-  stepping and a trackpad flick coasts. It also carries you past the point
-  where the cursor runs out of screen, which is the main reason to keep both.
-  Ctrl/pinch wheel is left to the browser's zoom. The handler is non-passive
+- **Click the viewport to look around.** While the lock is held, `movementX` and
+  `movementY` go straight onto yaw and pitch at `lookSpeed` (0.0025 rad/px)
+  times the user's sensitivity, applied on the event itself. Nothing is
+  smoothed, eased, accelerated, curved or banked: a hand that moves twice as
+  far turns the view twice as far, and a still mouse is a still camera for as
+  long as you leave it. Yaw is unbounded; pitch clamps at ±89° so the view can
+  never flip, and comes straight back off the clamp with nothing stored up.
+
+  This replaced two controllers that steered with a visible cursor, one
+  accumulating deltas with a turn rate in an edge margin and one mapping cursor
+  position to a turn rate over the whole canvas. Both drifted, for the same
+  reason: the cursor is bounded by the window and yaw is not, so something had
+  to convert "the cursor ran out of screen" into "keep turning", and whatever
+  did that broke the correspondence between hand and view. Measured as a round
+  trip, cursor returned to where it started:
+
+  | | deltas + edge ramp | rate everywhere | pointer lock |
+  | --- | --- | --- | --- |
+  | horizontal, plain | 0.0° | 0.0° | n/a — no cursor to return |
+  | vertical, grazing the clamp | **−10.0°** | 0.0° | n/a |
+  | horizontal, one second at the edge | **−87.5°** | 0.0° | n/a |
+
+  The column is "n/a" rather than zero because pointer lock removes the bound
+  that caused the problem instead of working around it. There is no cursor
+  position to correspond to, so there is nothing to drift away from.
+
+- **W/S walk along the camera's horizontal heading; A/D strafe.** Pitch never
+  tilts the floor: looking straight up and walking forward still travels flat.
+
+- **M releases the cursor and opens the pause menu.** While the lock is held
+  nothing on screen can be clicked, so the way out has to be a key — a small
+  hint in the corner says which. Escape is deliberately not bound: the browser
+  spends it leaving pointer lock *and* leaving fullscreen, and a page cannot
+  preventDefault its way out of either. It still releases the cursor, and
+  `pointerlockchange` reports that like any other release, which is why the
+  prompt tracks what the browser says rather than what we last asked for.
+
+- **Clicking the viewport re-enters.** Chrome refuses a request made too soon
+  after an Escape exit and reports it by rejecting the returned promise rather
+  than throwing; that rejection is swallowed and the click-to-look prompt stays
+  up, which is the correct state anyway. A browsing context that forbids
+  pointer lock outright fails the same way, so the app degrades to "prompt that
+  will not go away" rather than breaking.
+
+- **Losing the lock releases the movement keys.** Whatever took it — Escape, a
+  tab switch, our own menu — means the player has stopped, and a key left stuck
+  down would walk them into a wall with no way to steer.
+
+- **The wheel no longer steers.** Scroll-to-turn was part of the visible-cursor
+  system and its easing is exactly the smoothing this controller is not allowed
+  to have. The handler survives only to `preventDefault`, which keeps the page
+  from scrolling and keeps a horizontal trackpad swipe from triggering the
+  browser's back/forward navigation.
   and calls `preventDefault`, which also stops a horizontal swipe triggering
   the browser's back/forward navigation.
-- Turning, edge turning included, only happens while the pointer is over the
-  canvas, so all of it stops the moment the cursor reaches an overlay control
-  and a cursor parked on a button never spins the world. Re-entering the canvas
-  reseeds from the entry point rather than from where the cursor was last seen,
-  so coming back from a button never snaps the view. The unavoidable cost of
-  cursor-steering is that the view does turn on the way to a control; M
-  freezes everything if you need the pointer somewhere without moving.
+- Looking only happens while the lock is held, so overlay controls are only
+  ever reachable with a free cursor and can never be steered through.
 - M opens the pause menu and M again resumes. Escape would be the conventional
   key, but a browser spends it leaving fullscreen and a page cannot
   preventDefault its way out of that, so pressing it would cost the visitor
@@ -108,9 +139,10 @@ click-to-capture (pointer lock) and no drag-to-look: you turn by moving.
   there when you come back.
 - Look sensitivity is a slider in the pause menu, persisted per browser in
   `localStorage` under `wtp:look-sensitivity` and clamped to 0.25×–3×. It
-  scales cursor, edge, scroll and gamepad turning alike. The right value depends on
+  multiplies the mouse delta directly, with no curve of any kind, and scales
+  touch swipe and the gamepad stick alike. The right value depends on
   the pointing device, so there is no single correct default.
-- WASD or arrow keys walk; Shift runs.
+- WASD or arrow keys walk and strafe; Shift runs.
 - Touch devices show direction buttons and turn with a one-finger swipe, since
   a touchscreen has no cursor to follow.
 - Gamepad: left stick walk, right stick look, triggers run, Y/triangle reset.

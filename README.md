@@ -143,10 +143,11 @@ everything inside the render loop.
 - Splat meshes get `quaternion.set(1, 0, 0, 0)` — a 180° roll about X. Marble and
   most PLY exporters use a Y-down convention relative to Three.js. If an export
   arrives upright, set `flipY: false` on that world.
-- Camera control uses grounded first-person movement, with nothing to hold or
-  click: moving the cursor over the scene turns, holding it against a left or
-  right edge keeps turning so a full circle is reachable, and scrolling turns
-  as well. There is no pointer lock and no drag-to-look. M opens the pause menu,
+- Camera control is standard pointer-lock mouselook: click the viewport to
+  capture the cursor, then raw mouse deltas drive unbounded yaw and ±89° pitch
+  with no smoothing, acceleration or auto-turn. WASD walks and strafes along
+  the camera's horizontal heading, and M gives the cursor back. Escape is never
+  bound, since the browser spends it leaving both pointer lock and fullscreen. M opens the pause menu,
   which is the only in-world chrome: it carries the controls, a persisted look
   sensitivity slider, the evidence toggle and the way out. Not Escape, which the
   browser spends leaving fullscreen.
