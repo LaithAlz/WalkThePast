@@ -80,6 +80,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
   const createRetriesRef = useRef(0);
   /** true until the first words of the opening are queued, so they can be forced to start with Welcome */
   const openingPendingRef = useRef(false);
+  /** the opening's text, held back until its reply is complete (see response.done) */
+  const openingTextRef = useRef("");
   /** a quiz card held back until the words spoken before it have been heard */
   const pendingQuizRef = useRef<HistorianQuiz | null>(null);
   /** the response that asked for the pending card; speech from any later reply reveals it */
@@ -153,6 +155,9 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     activeResponseRef.current = null;
     toolContinuationRef.current = false;
     textPartsRef.current.clear();
+    // An interruption ends the opening: whatever comes next is a reply, not a welcome.
+    openingPendingRef.current = false;
+    openingTextRef.current = "";
     playerRef.current?.reset();
     setCanReplay(false);
     setCaption("");
@@ -428,19 +433,15 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     }
     const delta = final ? event.text?.slice(part.received.length) ?? "" : event.delta ?? "";
     part.received += delta;
-    let text = part.pending + delta;
+    const text = part.pending + delta;
     if (openingPendingRef.current) {
-      // Hold the first words back until there are enough to know how the opening starts.
-      if (!final && part.received.length < 16) {
-        part.pending = text;
-        textPartsRef.current.set(key, part);
-        return;
-      }
-      openingPendingRef.current = false;
-      if (!/^\s*welcome/i.test(part.received)) {
-        const world = contextRef.current.world;
-        text = `Welcome to ${world.title || world.place}. ${text.trimStart()}`;
-      }
+      // The opening is held whole until its reply is done: the model tends to say a line
+      // before calling its tools and then the real welcome after them, and speaking both
+      // welcomes the visitor twice. response.done decides which text is the opening.
+      openingTextRef.current += delta;
+      part.done = final;
+      textPartsRef.current.set(key, part);
+      return;
     }
     const { clips, remainder } = splitNarrationText(text, final);
     part.pending = remainder;
@@ -522,6 +523,21 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           item.content?.forEach((part, index) => {
             if (part.type === "output_text" || part.type === "text") queueText({ response_id: responseId, item_id: item.id, content_index: index, text: part.text }, true);
           });
+        }
+        if (openingPendingRef.current) {
+          // A reply that called tools was only preparing; its words are dropped and the
+          // continuation carries the opening. The first reply without tools is the opening,
+          // spoken once, and made to begin with a welcome if the model did not.
+          const preparing = (event.response?.output ?? []).some((item) => item.type === "function_call");
+          const held = openingTextRef.current.trim();
+          openingTextRef.current = "";
+          if (!preparing && held) {
+            openingPendingRef.current = false;
+            const world = contextRef.current.world;
+            const spoken = /^welcome/i.test(held) ? held : `Welcome to ${world.title || world.place}. ${held}`;
+            const { clips, remainder } = splitNarrationText(spoken, true);
+            for (const clip of [...clips, ...(remainder.trim() ? [remainder] : [])]) playerRef.current?.enqueue(clip, responseId);
+          }
         }
         if (toolContinuationRef.current) {
           toolContinuationRef.current = false;
@@ -707,6 +723,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         if (!current()) return;
         connectingRef.current = false;
         openingPendingRef.current = true;
+        openingTextRef.current = "";
         setStatus("thinking");
         send({
           type: "session.update",
