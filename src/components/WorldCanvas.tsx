@@ -196,7 +196,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
           ref={canvasRef}
           className="explore-canvas"
           tabIndex={0}
-          aria-label="3D world. Point where you want to look, or scroll to turn. Press M for the menu. Use W A S D or arrow keys to walk, Shift to run, R to reset."
+          aria-label="3D world. W and S walk, A and D turn, and the cursor looks around. Press M for the menu, Shift to run, R to reset."
         />
         <img
           ref={overlayRef}
@@ -228,8 +228,8 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
         )}
       </div>
       {canWalk && <div className="walking-touch" aria-label="Walking controls">
-        {([['forward', '↑'], ['left', '←'], ['back', '↓'], ['right', '→']] as const).map(([key, label]) => <button
-          key={key} className={`walk-${key}`} aria-label={`Walk ${key}`}
+        {([['forward', '↑', 'Walk forward'], ['left', '←', 'Turn left'], ['back', '↓', 'Walk back'], ['right', '→', 'Turn right']] as const).map(([key, label, description]) => <button
+          key={key} className={`walk-${key}`} aria-label={description}
           onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); updateTouch(key, true); }}
           onPointerUp={() => updateTouch(key, false)} onPointerCancel={() => updateTouch(key, false)}
           onLostPointerCapture={() => updateTouch(key, false)} onBlur={() => updateTouch(key, false)}
@@ -243,9 +243,10 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
           <h2 id="walk-pause-title">Paused</h2>
           <p>Walking, looking and the historian are all held. Resume to carry on where you left off.</p>
           <dl className="walk-shortcuts">
-            <div><dt>W A S D</dt><dd>Move</dd></div>
+            <div><dt>W S</dt><dd>Walk</dd></div>
+            <div><dt>A D</dt><dd>Turn</dd></div>
+            <div><dt>Mouse</dt><dd>Look around</dd></div>
             <div><dt>Shift</dt><dd>Run</dd></div>
-            <div><dt>Mouse</dt><dd>Point to look</dd></div>
             <div><dt>Scroll</dt><dd>Turn</dd></div>
             {voice && <div><dt>Space</dt><dd>Hold to talk</dd></div>}
             <div><dt>M</dt><dd>This menu</dd></div>

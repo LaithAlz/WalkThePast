@@ -70,53 +70,70 @@ that scene must wait for an aligned mesh from the pipeline.
 Nothing needs a button held or a pointer captured. There is deliberately no
 click-to-capture (pointer lock) and no drag-to-look: you turn by moving.
 
-- **Point where you want to look.** The cursor steers by position, not by
-  movement: where it sits inside the canvas sets how fast the view turns. A
-  rest band of `LOOK_REST_BAND` (16% of each half-axis, so the middle 32% of
-  the canvas in both directions) holds the view still, and outside it the rate
-  ramps with the square of the deflection, reaching `lookRate` (2.2 rad/s,
-  about a full turn in three seconds) at the very edge. Both axes, identically:
-  the same deflection left and the same deflection down turn at the same rate.
-  Turning stops the moment the cursor leaves the canvas.
+- **The body and the eyes are separate.** A and D turn the body, held, with no
+  limit, and W and S walk along wherever it is facing. The cursor moves only
+  the eyes, and only within a cone around the body's forward direction: the
+  centre of the canvas is straight ahead, each edge is `lookRange` (±70°) off
+  it, and every position in between maps to exactly one direction. Walking
+  follows the body, never the eyes, so you can walk down a corridor while
+  looking out of a window.
 
-  This replaced a controller that accumulated cursor deltas in the middle of
-  the canvas and switched to a rate in an edge margin. Two control laws in one
-  controller produced both of the bugs that made it feel wrong, and measuring
-  them is the clearest way to see why one law was the fix:
+  The split is what makes the cursor honest. Two earlier controllers steered
+  entirely with the cursor and both drifted, for one reason: the cursor is
+  bounded by the window and yaw is not, so something had to turn "the cursor
+  ran out of screen" into "keep turning", and whatever did that broke the
+  correspondence between where the cursor sat and where you were looking.
+  Giving unbounded turning to A and D removes the need, so the cursor can be a
+  pure function of position. Put it back in the same place and you are looking
+  in the same direction; centre it and you are looking exactly where the body
+  faces, whatever route it took to get there and however many times it hit the
+  bound.
 
-  | round trip, cursor returns to where it started | old | new |
-  | --- | --- | --- |
-  | horizontal, no clamp and no edge margin | 0.0° | 0.0° |
-  | vertical, grazing the pitch clamp | **−10.0°** | 0.0° |
-  | horizontal, one second in the edge margin | **−87.5°** | 0.0° |
+  | round trip, cursor returns to where it started | deltas + edge ramp | rate everywhere | body + eyes |
+  | --- | --- | --- | --- |
+  | horizontal, plain | 0.0° | 0.0° | 0.0° |
+  | vertical, grazing the bound | **−10.0°** | 0.0° | 0.0° |
+  | horizontal, one second at the edge | **−87.5°** | 0.0° | 0.0° |
 
-  The vertical figure is the clamp: a sweep from the middle of an 863 px canvas
-  to the top is 98.8° of intent, pitch stops at 88.9°, and the 9.9° it could
-  not spend was discarded — but the sweep back subtracted all 98.8°, so the
-  same cursor position came back ten degrees lower. The horizontal figure is
-  the edge margin advancing yaw while the cursor stood still. A rate law has
-  neither, because nothing accumulates: the cursor's position is the whole of
-  the input, every frame, and a rate cannot overshoot a clamp.
+  The first controller accumulated cursor deltas in the middle of the canvas
+  and switched to a yaw rate in an edge margin. Its vertical figure is the
+  pitch clamp: a sweep from the middle of an 863 px canvas to the top was 98.8°
+  of intent, pitch stopped at 88.9°, and the 9.9° it could not spend was
+  discarded — but the sweep back subtracted all 98.8°, so the same cursor
+  position came back ten degrees lower. Its horizontal figure is the edge
+  margin advancing yaw while the cursor stood still. The second replaced both
+  laws with a single rate over the whole canvas, which is driftless but steers
+  like a joystick: the view only rests when the cursor is parked.
 
-  Excluding pitch from the old edge ramp was also what made looking up feel
-  unlike looking sideways. The full pitch range needed 775 px of travel against
-  863 px of canvas — one shot from a perfect starting position, and flatly
-  impossible below 1× sensitivity, where it needs 1551 px. There was no
-  vertical equivalent of the ramp to get round it. Now both axes reach both
-  limits by holding the cursor there.
-- **Scroll** to turn as well, which is a two-finger swipe. Scroll is banked
-  and eased out over a few frames, so a notched wheel glides instead of
-  stepping and a trackpad flick coasts. It also carries you past the point
-  where the cursor runs out of screen, which is the main reason to keep both.
-  Ctrl/pinch wheel is left to the browser's zoom. The handler is non-passive
+- **A and D are unbounded and stop dead.** `turnSpeed` is 2 rad/s, about a full
+  circle in three seconds; six seconds of holding D is 679° and still going.
+  The input eases in over `TURN_EASE` so a tap nudges rather than snapping to
+  full speed, but release is applied on the same frame rather than eased —
+  coasting on past where you let go is the drift this controller exists to be
+  rid of, and an eased release would have cost 9.5° of it.
+
+- **There is no edge continuation.** Holding the cursor against an edge for
+  five seconds turns the view by 0.00°. That behaviour belonged to the cursor
+  when the cursor had to reach everywhere; it belongs to A and D now.
+
+- **The eyes ease onto the cursor** at `LOOK_EASE`, which takes the jitter off
+  a shaky hand and glides rather than jumps when the cursor re-enters the
+  canvas. It converges on the target exactly rather than asymptotically, so the
+  ±70° bound and the return-to-centre are both exact. Leaving the canvas
+  freezes the look where it is rather than springing it forward, so reaching
+  for a control does not also swing the view.
+- **Scroll** turns the body as well, which is a two-finger swipe. Scroll is
+  banked and eased out over a few frames, so a notched wheel glides instead of
+  stepping and a trackpad flick coasts. Only the horizontal axis does anything:
+  pitch belongs to the cursor now, and a second owner accumulating into it
+  would fight the cursor's absolute position every frame. Ctrl/pinch wheel is
+  left to the browser's zoom. The handler is non-passive
   and calls `preventDefault`, which also stops a horizontal swipe triggering
   the browser's back/forward navigation.
-- Turning only happens while the pointer is over the canvas, so it stops the
-  moment the cursor reaches an overlay control and a cursor parked on a button
-  never spins the world. Re-entering never snaps the view, because there is no
-  seed to go stale. The unavoidable cost of cursor-steering is that the view
-  does turn on the way to a control; M freezes everything if you need the
-  pointer somewhere without moving.
+- Looking only happens while the pointer is over the canvas, so it stops the
+  moment the cursor reaches an overlay control. The view does move on the way
+  to a control, but only within the look cone and reversibly; M freezes
+  everything if you need the pointer somewhere without moving.
 - M opens the pause menu and M again resumes. Escape would be the conventional
   key, but a browser spends it leaving fullscreen and a page cannot
   preventDefault its way out of that, so pressing it would cost the visitor
@@ -129,9 +146,11 @@ click-to-capture (pointer lock) and no drag-to-look: you turn by moving.
   there when you come back.
 - Look sensitivity is a slider in the pause menu, persisted per browser in
   `localStorage` under `wtp:look-sensitivity` and clamped to 0.25×–3×. It
-  scales cursor, scroll, swipe and gamepad turning alike. The right value depends on
+  bends how quickly cursor travel reaches a given look angle (linear at 1×,
+  sooner above it, finer near the centre below it) and scales scroll and swipe.
+  The ±70° bound does not move with it. The right value depends on
   the pointing device, so there is no single correct default.
-- WASD or arrow keys walk; Shift runs.
+- W/S or up/down walk, A/D or left/right turn; Shift runs. There is no strafe: A and D spend their keys on turning, which is what makes the cursor able to stay bounded.
 - Touch devices show direction buttons and turn with a one-finger swipe, since
   a touchscreen has no cursor to follow.
 - Gamepad: left stick walk, right stick look, triggers run, Y/triangle reset.
