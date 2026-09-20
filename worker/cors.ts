@@ -29,13 +29,31 @@ export function allowedOrigin(request: Request, env: Env): string | null {
   return patterns.some((p) => allows(p, origin)) ? origin : null;
 }
 
-/** Add the CORS headers to a response that is about to go back to the browser. */
+/**
+ * Add the CORS headers to a response that is about to go back to the browser.
+ *
+ * Vary is set even when this request carried no Origin. A library card loads a world's
+ * photograph through a plain <img>, which sends no Origin and so gets no
+ * Access-Control-Allow-Origin; that reply is cached immutable for a year. Without Vary the
+ * browser then hands the same cached bytes to the viewer's crossOrigin image and to the
+ * voice historian's fetch, both of which require the header — so they failed against a
+ * world that had loaded perfectly a moment earlier.
+ */
 export function withCors(response: Response, origin: string | null): Response {
-  if (!origin) return response;
   const headers = new Headers(response.headers);
-  headers.set("access-control-allow-origin", origin);
-  // the allowlist makes the response origin-specific, so it must not be cached for another
   headers.append("vary", "Origin");
+  if (origin) headers.set("access-control-allow-origin", origin);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+/**
+ * World assets are public, immutable and carry no credentials, so they answer every origin
+ * with "*". One reply then works for a plain <img>, a crossOrigin image and a fetch alike,
+ * which keeps a cached copy usable by all three.
+ */
+export function withPublicCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("access-control-allow-origin", "*");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 

@@ -13,7 +13,7 @@ import { narrate } from "./narration.ts";
 import { deleteJob, getJob, listJobs, publicJob, putJob, reconcile } from "./store.ts";
 import type { Env } from "./types.ts";
 import { base64ToBytes } from "./marbleWorkflow.ts";
-import { allowedOrigin, preflight, withCors } from "./cors.ts";
+import { allowedOrigin, preflight, withCors, withPublicCors } from "./cors.ts";
 
 export { MarbleWorkflow } from "./marbleWorkflow.ts";
 export { JobStore } from "./jobs.ts";
@@ -33,7 +33,7 @@ export default {
     if (backend && request.method === "OPTIONS") return preflight(request, origin);
     try {
       if (path.startsWith("/api/")) return withCors(await api(request, env, path), origin);
-      if (path.startsWith("/worlds/")) return withCors(await serveWorld(env, path), origin);
+      if (path.startsWith("/worlds/")) return withPublicCors(await serveWorld(env, path));
       return await env.ASSETS.fetch(request);
     } catch (error) {
       console.error("[worker]", path, error instanceof Error ? error.message : error);
