@@ -31,8 +31,6 @@ export type MarbleEvent = {
   images: { key: string; name: string; mime: string; azimuth?: number }[];
 };
 
-/** Marble polls every 6s in the Vite bridge; keep the same cadence, with a ceiling so a
- *  stuck operation fails the instance instead of sleeping for a year. */
 /** Every poll is a subrequest, and a Workflow instance has a budget of them (50 on the
  *  free plan). A five-minute generation at 6 s used the whole budget on polling alone. */
 const POLL_MS = 12_000;
@@ -44,9 +42,8 @@ export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
     const env = this.env;
     const marble = new Marble(requireKey(env.WORLDLAB_API_KEY, "WORLDLAB_API_KEY"));
 
-    // Job status is reported to the client from KV: a Workflow instance knows it is
-    // "running" but not that it is "painting the photograph". `sticky` carries the fields
-    // that outlive a single stage, so the library keeps its thumbnail as the job advances.
+    // Job status is reported to the client from the job store: a Workflow instance knows it
+    // is "running" but not that it is "painting the photograph".
     // The record on disk is the source of those fields, not a closure: the engine re-runs
     // this function from the top after every sleep, and a closure would forget the
     // thumbnail. The stage clock only restarts when the status actually changes, so the
