@@ -119,6 +119,14 @@
 .explore-page button:focus-visible, .explore-canvas:focus-visible { outline: 2px solid #b8caff; outline-offset: 3px; }
 @media (pointer: coarse) { .walking-touch { display: grid; }.explore-caption { bottom: 148px; }.evidence-mode .explore-caption { bottom: 280px; }.legend { bottom: 146px; } }
 .explore-loading { position: absolute; z-index: 5; top: 50%; left: 50%; padding: 14px 20px; border: 1px solid rgba(240,243,247,.12); border-radius: 12px; background: rgba(9,11,15,.72); color: rgba(240,243,247,.8); font: 10px 'IBM Plex Mono', monospace; letter-spacing: .14em; white-space: nowrap; backdrop-filter: blur(16px); transform: translate(-50%,-50%); }
+/* Both sit above the canvas and neither is clickable: the prompt has to let
+   the click through to the canvas, and the hint appears only while the cursor
+   is captured and so could not be clicked anyway. */
+.look-prompt { position: absolute; z-index: 5; inset: 0; display: grid; place-items: center; padding: 24px; pointer-events: none; }
+.look-prompt p { display: grid; gap: 11px; justify-items: center; margin: 0; padding: 20px 28px; border: 1px solid rgba(240,243,247,.16); border-radius: 15px; background: rgba(9,11,15,.66); box-shadow: 0 20px 56px rgba(0,0,0,.4); backdrop-filter: blur(16px); text-align: center; }
+.look-prompt b { color: #f7f4ec; font: 400 23px/1.2 'Instrument Serif', Georgia, serif; }
+.look-prompt span { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; align-items: center; color: rgba(240,243,247,.52); font: 9px 'IBM Plex Mono', monospace; letter-spacing: .12em; }
+.look-hint { position: absolute; z-index: 5; right: 26px; bottom: 22px; display: flex; gap: 7px; align-items: center; margin: 0; pointer-events: none; color: rgba(240,243,247,.4); font: 9px 'IBM Plex Mono', monospace; letter-spacing: .14em; }
 .walk-pause-backdrop { position: absolute; z-index: 8; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 24px; background: rgba(5,7,10,.48); backdrop-filter: blur(8px); }
 .walk-pause-menu { width: min(468px, 100%); padding: 30px; border: 1px solid rgba(240,243,247,.16); border-radius: 18px; color: #f0f3f7; background: rgba(12,16,22,.92); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
 .walk-pause-menu .eyebrow { margin: 0 0 14px; color: #9fb6ff; }
@@ -156,7 +164,7 @@
 .photo-card .button { min-height: 44px; }
 .photo-card .button:disabled { opacity: .55; cursor: wait; box-shadow: none; }
 .photo-enter { color: rgba(247,244,236,.5); font-size: 13px; }
-.photo-enter kbd { padding: 2px 7px; border: 1px solid rgba(240,243,247,.22); border-radius: 5px; background: rgba(240,243,247,.07); font: 10px 'IBM Plex Mono', monospace; color: rgba(247,244,236,.78); }
+.photo-enter kbd, .look-prompt kbd, .look-hint kbd { padding: 2px 7px; border: 1px solid rgba(240,243,247,.22); border-radius: 5px; background: rgba(240,243,247,.07); font: 10px 'IBM Plex Mono', monospace; color: rgba(247,244,236,.78); }
 .photo-progress { margin: 20px 0 0; }
 .photo-progress i { display: block; position: relative; height: 2px; overflow: hidden; border-radius: 2px; background: rgba(240,243,247,.13); }
 .photo-progress i::after { content: ""; position: absolute; inset: 0; width: 32%; border-radius: 2px; background: #4f7cff; animation: photo-progress 1.4s ease-in-out infinite; }

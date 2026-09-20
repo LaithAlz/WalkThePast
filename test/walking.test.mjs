@@ -170,184 +170,169 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
   };
   const key = (code, type = 'keydown') => { const event = new Event(type); Object.defineProperty(event, 'code', { value: code }); document.dispatchEvent(event); };
   try {
-    // The canvas is 1000x800, so the cursor rests at (500, 400).
-    const RANGE = (70 * Math.PI) / 180;
-    const at = (x, y) => pointer('pointermove', { pointerType: 'mouse', clientX: x, clientY: y });
-    const frames = (n) => { for (let i = 0; i < n; i++) c.update(1 / 60); };
-    // The look eases onto the cursor, so give it long enough to arrive exactly.
-    const settle = () => frames(60);
-
-    // A and D turn the body, held, and W and S walk along it. Neither strafes.
-    pointer('pointerenter', { pointerType: 'mouse', clientX: 500, clientY: 400 });
-    at(500, 400);
-    settle();
-    near(c.heading, 0, 1e-12, 'the body starts where it was pointed');
-    key('KeyD');
-    frames(30);
-    assert.ok(c.heading < 0, 'D turns the body right');
-    const turnedRight = c.heading;
-    key('KeyD', 'keyup');
-    key('KeyA');
-    frames(60);
-    assert.ok(c.heading > turnedRight, 'A turns the body back left');
-    key('KeyA', 'keyup');
-    frames(10);
-
-    // Body turning is unbounded: a full circle and beyond, just by holding it.
-    c.heading = 0;
-    key('KeyD');
-    frames(60 * 4);
-    assert.ok(-c.heading > Math.PI * 2, 'holding D turns through a full circle and past it');
-    key('KeyD', 'keyup');
-    frames(20);
-    const parked = c.heading;
-    frames(60);
-    near(c.heading, parked, 1e-12, 'and the body stops dead when the key is released');
-
-    // The cursor is a bounded absolute look: one position, one direction.
-    c.heading = 0;
-    at(500, 400); settle();
-    near(c.yaw, 0, 1e-9, 'the centre of the canvas is straight ahead');
-    near(c.pitch, 0, 1e-9, 'in both axes');
-    at(1000, 400); settle();
-    near(c.yaw, -RANGE, 1e-9, 'the right edge looks a full range right');
-    at(0, 400); settle();
-    near(c.yaw, RANGE, 1e-9, 'the left edge looks a full range left');
-    at(500, 0); settle();
-    near(c.pitch, RANGE, 1e-9, 'the top edge looks a full range up');
-    at(500, 800); settle();
-    near(c.pitch, -RANGE, 1e-9, 'the bottom edge looks a full range down');
-    at(750, 400); settle();
-    near(c.yaw, -RANGE / 2, 1e-9, 'and halfway out is half the range');
-
-    // Bounded: a cursor dragged past the edge does not keep going.
-    at(4000, 9000); settle();
-    near(c.yaw, -RANGE, 1e-9, 'past the right edge is still a full range right');
-    near(c.pitch, -RANGE, 1e-9, 'past the bottom edge is still a full range down');
-
-    // No edge continuation. This is the behaviour that was removed: sitting at
-    // the edge used to keep turning, which is now A and D's job alone.
-    at(1000, 400); settle();
-    const pinned = c.yaw;
-    frames(180);
-    near(c.yaw, pinned, 1e-12, 'holding the cursor at the edge does not keep turning');
-
-    // Returning to the centre returns to the body's forward direction exactly,
-    // whatever route the cursor took, however many times it hit the bound.
-    c.heading = 0.75;
-    for (const [x, y] of [[0, 0], [1000, 800], [500, 0], [9999, -9999], [0, 400], [500, 800]]) { at(x, y); settle(); }
-    at(500, 400); settle();
-    near(c.yaw, 0.75, 1e-9, 'the cursor back at centre is the body heading, with no drift');
-    near(c.pitch, 0, 1e-9, 'and level');
-
-    // The look holds where it was when the cursor leaves for a control, rather
-    // than springing forward under the reader's hand.
-    at(800, 400); settle();
-    const held = c.yaw;
-    pointer('pointerleave', { pointerType: 'mouse', clientX: 800, clientY: 400 });
-    frames(120);
-    near(c.yaw, held, 1e-12, 'a cursor off the canvas neither turns nor recentres');
-    pointer('pointerenter', { pointerType: 'mouse', clientX: 500, clientY: 400 });
-    at(500, 400); settle();
-    near(c.yaw, 0.75, 1e-9, 'and coming back to the centre is still exactly forward');
-    c.heading = 0;
-
-    // M pauses, and nothing turns while paused. Escape is the browser's key for
-    // leaving fullscreen and cannot be taken back, so it is not ours to use.
-    key('Escape');
-    assert.equal(pauseRequests, 0, 'Escape is left to the browser');
-    key('KeyM');
-    assert.equal(pauseRequests, 1, 'M opens the pause menu');
-    const pausedYaw = c.yaw;
-    at(60, 40);
-    frames(30);
-    assert.equal(c.yaw, pausedYaw, 'a paused viewer ignores pointer input');
-    key('KeyM');
-    assert.equal(resumeRequests, 1, 'M closes the pause menu');
-    assert.equal(pauseRequests, 1, 'closing the menu does not re-open it');
-
-    // Touch has no cursor, so it swipes: horizontally it turns the body.
-    pointer('pointerenter', { pointerType: 'mouse', clientX: 500, clientY: 400 });
-    at(500, 400); settle();
-    const beforeTouch = c.heading;
-    pointer('pointermove', { pointerType: 'touch', clientX: 999, clientY: 400 });
-    assert.equal(c.heading, beforeTouch, 'touch without a finger down does not turn');
-    pointer('pointerdown', { button: 0, pointerType: 'touch', clientX: 500, clientY: 400, pointerId: 4 });
-    pointer('pointermove', { pointerType: 'touch', clientX: 562, clientY: 400 });
-    assert.notEqual(c.heading, beforeTouch, 'touch swipe turns the body');
-    pointer('pointerup', { pointerType: 'touch', clientX: 562, clientY: 400, pointerId: 4 });
-    const releasedHeading = c.heading;
-    pointer('pointermove', { pointerType: 'touch', clientX: 900, clientY: 400 });
-    assert.equal(c.heading, releasedHeading, 'a released swipe stops turning');
-    c.heading = 0;
-
-    // Scroll turns the body too, with no click and no held button, eased out
-    // over several frames rather than snapping.
-    const wheel = (values) => {
-      const event = new Event('wheel');
-      for (const [k, v] of Object.entries({ deltaX: 0, deltaY: 0, deltaMode: 0, ctrlKey: false, preventDefault: () => {}, ...values })) {
-        Object.defineProperty(event, k, { value: v });
-      }
-      canvas.dispatchEvent(event);
+    // Pointer lock, stubbed the way the browser drives it: the request and the
+    // release both report back through pointerlockchange rather than returning.
+    const LIMIT = (89 * Math.PI) / 180;
+    let lockRequests = 0;
+    canvas.requestPointerLock = () => {
+      lockRequests += 1;
+      document.pointerLockElement = canvas;
+      document.dispatchEvent(new Event('pointerlockchange'));
     };
-    c.setSensitivity(1);
-    pointer('pointerleave', { pointerType: 'mouse', clientX: 500, clientY: 400 });
-    const scrollStart = c.heading;
-    wheel({ deltaX: 100 });
-    assert.equal(c.heading, scrollStart, 'scroll does not snap the body on the event itself');
-    c.update(1 / 60);
-    const firstFrame = Math.abs(c.heading - scrollStart);
-    assert.ok(firstFrame > 0, 'scroll turns on the next frame');
-    assert.ok(firstFrame < 0.22, 'the first frame spends only part of the scroll');
-    frames(120);
-    near(Math.abs(c.heading - scrollStart), 0.22, 1e-3, 'the whole scroll is eventually spent');
-    // Frame rate must not change how far a given scroll turns.
-    const slowStart = c.heading;
-    wheel({ deltaX: 100 });
-    for (let i = 0; i < 20; i++) c.update(1 / 10);
-    near(Math.abs(c.heading - slowStart), 0.22, 1e-3, 'scroll travel is frame-rate independent');
-    // Line and page deltas are normalised, and ctrl+wheel belongs to the browser.
-    const lineStart = c.heading;
-    wheel({ deltaX: 3, deltaMode: 1 });
-    frames(120);
-    near(Math.abs(c.heading - lineStart), 3 * 16 * 0.0022, 1e-3, 'line deltas are scaled to pixels');
-    // Vertical scroll has no owner now: pitch is the cursor's alone.
-    const verticalStart = c.heading, verticalPitch = c.pitch;
-    wheel({ deltaY: 400 });
-    frames(120);
-    near(c.heading, verticalStart, 1e-12, 'vertical scroll does not turn the body');
-    near(c.pitch, verticalPitch, 1e-12, 'and does not fight the cursor for pitch');
-    const zoomStart = c.heading;
-    wheel({ deltaX: 500, ctrlKey: true });
-    frames(10);
-    assert.equal(c.heading, zoomStart, 'ctrl+wheel is left to the browser zoom');
-    c.clearInput();
-    c.heading = 0;
+    document.exitPointerLock = () => {
+      document.pointerLockElement = null;
+      document.dispatchEvent(new Event('pointerlockchange'));
+    };
+    const mouse = (movementX, movementY) => {
+      const event = new Event('mousemove');
+      Object.defineProperty(event, 'movementX', { value: movementX });
+      Object.defineProperty(event, 'movementY', { value: movementY });
+      document.dispatchEvent(event);
+    };
+    const frames = (n) => { for (let i = 0; i < n; i++) c.update(1 / 60); };
 
-    // The user multiplier bends how fast the look reaches a given angle, while
-    // the bound stays exactly where it is.
-    pointer('pointerenter', { pointerType: 'mouse', clientX: 500, clientY: 400 });
-    const halfway = (sensitivity) => {
+    // Nothing looks until the viewport has been clicked.
+    const before = c.yaw;
+    mouse(200, 0);
+    assert.equal(c.yaw, before, 'an unlocked mouse does not move the camera');
+    assert.equal(c.locked, false);
+
+    // Clicking the viewport captures the cursor.
+    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 1 });
+    assert.equal(lockRequests, 1, 'clicking the viewport asks for pointer lock');
+    assert.equal(c.locked, true, 'and the browser granting it is what makes us locked');
+
+    // Raw deltas, applied exactly: no smoothing, no acceleration, no curve.
+    c.yaw = 0; c.pitch = 0;
+    mouse(100, 0);
+    near(c.yaw, -100 * 0.0025, 1e-12, 'yaw is the delta times lookSpeed, to the pixel');
+    mouse(100, 0);
+    near(c.yaw, -200 * 0.0025, 1e-12, 'and the second hundred pixels turn exactly as far as the first');
+    mouse(0, 100);
+    near(c.pitch, -100 * 0.0025, 1e-12, 'pitch likewise');
+    // Movement arrives on the event, not spread over frames afterwards.
+    const applied = c.yaw;
+    frames(120);
+    near(c.yaw, applied, 1e-12, 'nothing is left over to ease out after the event');
+
+    // No auto-turn of any kind: a still mouse is a still camera, forever.
+    c.yaw = 0; c.pitch = 0;
+    frames(600);
+    assert.equal(c.yaw, 0, 'ten seconds of frames with no input do not turn the view');
+    assert.equal(c.pitch, 0, 'in either axis');
+
+    // Yaw is unbounded — pointer lock has no window to run out of.
+    c.yaw = 0;
+    for (let i = 0; i < 40; i++) mouse(-100, 0);
+    assert.ok(c.yaw > Math.PI * 2, 'yaw passes a full circle and keeps going');
+    for (let i = 0; i < 80; i++) mouse(-100, 0);
+    assert.ok(c.yaw > Math.PI * 6, 'and a third circle, with nothing to stop it');
+
+    // Pitch clamps just short of vertical, and leaves the clamp immediately.
+    c.pitch = 0;
+    mouse(0, -100000);
+    near(c.pitch, LIMIT, 1e-12, 'pitch pins just short of straight up');
+    mouse(0, 40);
+    near(c.pitch, LIMIT - 40 * 0.0025, 1e-12, 'and comes straight back down, with nothing banked past the clamp');
+    c.pitch = 0;
+    mouse(0, 100000);
+    near(c.pitch, -LIMIT, 1e-12, 'and the same looking down');
+    c.pitch = 0;
+
+    // Sensitivity is a plain multiplier on the delta.
+    const turn = (sensitivity) => {
       c.setSensitivity(sensitivity);
-      at(750, 400);
-      settle();
+      c.yaw = 0;
+      mouse(100, 0);
       return Math.abs(c.yaw);
     };
-    const at1 = halfway(1), at2 = halfway(2);
-    near(at1, RANGE / 2, 1e-9, 'halfway out is half the range at 1x');
-    assert.ok(at2 > at1, 'a higher sensitivity reaches further for the same travel');
-    c.setSensitivity(3);
-    at(1000, 400); settle();
-    near(c.yaw, -RANGE, 1e-9, 'but the bound does not move with sensitivity');
+    const at1 = turn(1), at2 = turn(2);
+    near(at1, 100 * 0.0025, 1e-12, 'one times is lookSpeed exactly');
+    near(at2, at1 * 2, 1e-12, 'two times is twice as far, with no curve in between');
     c.setSensitivity(99);
     assert.equal(c.sensitivity, 3, 'sensitivity is clamped');
     c.setSensitivity(Number.NaN);
     assert.equal(c.sensitivity, 3, 'a non-finite sensitivity is ignored');
     c.setSensitivity(1);
-    pointer('pointerleave', { pointerType: 'mouse', clientX: 500, clientY: 400 });
+    c.yaw = 0; c.pitch = 0;
+
+    // M gives the cursor back and asks for the menu. Escape is never bound:
+    // the browser spends it leaving pointer lock and fullscreen either way.
+    key('Escape');
+    assert.equal(pauseRequests, 0, 'Escape is left to the browser');
+    assert.equal(c.locked, true, 'and our handler does not release the lock behind it');
+    key('KeyM');
+    assert.equal(pauseRequests, 1, 'M asks for the pause menu');
+    assert.equal(c.locked, false, 'and hands the cursor back so the menu can be clicked');
+    const pausedYaw = c.yaw;
+    mouse(300, 300);
+    assert.equal(c.yaw, pausedYaw, 'a paused viewer ignores the mouse');
+    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 2 });
+    assert.equal(c.locked, false, 'and clicking through the menu does not re-capture the cursor');
+    key('KeyM');
+    assert.equal(resumeRequests, 1, 'M closes the pause menu');
+    assert.equal(pauseRequests, 1, 'closing the menu does not re-open it');
+
+    // The browser taking the lock away — Escape, a tab switch — must not leave
+    // a key stuck down, or the player walks on with no way to steer.
+    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 3 });
+    assert.equal(c.locked, true, 'clicking the viewport captures it again');
+    key('KeyW');
+    document.exitPointerLock();
+    assert.equal(c.locked, false, 'the browser released it');
+    m.reset();
+    const parked = camera.position.clone();
+    frames(60);
+    near(camera.position.distanceTo(parked), 0, 1e-6, 'losing the lock releases the movement keys');
+
+    // Chrome refuses a request made too soon after Escape, and says so with a
+    // rejected promise rather than by throwing. Neither may reach the caller.
+    canvas.requestPointerLock = () => Promise.reject(new Error('too soon after an exit'));
+    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 4 });
+    assert.equal(c.locked, false, 'a refused request leaves the click-to-look prompt up');
+    canvas.requestPointerLock = () => {
+      lockRequests += 1;
+      document.pointerLockElement = canvas;
+      document.dispatchEvent(new Event('pointerlockchange'));
+    };
+
+    // Touch cannot lock a pointer, so a finger down still looks by swiping.
+    c.yaw = 0;
+    pointer('pointermove', { pointerType: 'touch', clientX: 999, clientY: 400 });
+    assert.equal(c.yaw, 0, 'touch without a finger down does not look');
+    pointer('pointerdown', { button: 0, pointerType: 'touch', clientX: 500, clientY: 400, pointerId: 5 });
+    assert.equal(lockRequests, 2, 'and a finger never asks for pointer lock');
+    pointer('pointermove', { pointerType: 'touch', clientX: 562, clientY: 400 });
+    near(c.yaw, -62 * 0.004, 1e-12, 'a touch swipe looks by its own delta');
+    pointer('pointerup', { pointerType: 'touch', clientX: 562, clientY: 400, pointerId: 5 });
+    const released = c.yaw;
+    pointer('pointermove', { pointerType: 'touch', clientX: 900, clientY: 400 });
+    assert.equal(c.yaw, released, 'a released swipe stops looking');
+    c.yaw = 0; c.pitch = 0; c.clearInput();
+
+    // W and S walk along the heading; A and D strafe across it.
+    pointer('pointerdown', { button: 0, pointerType: 'mouse', clientX: 500, clientY: 400, pointerId: 6 });
+    m.reset(); c.yaw = 0; c.pitch = 0;
+    key('KeyD');
+    frames(90);
+    key('KeyD', 'keyup');
+    assert.ok(m.eye.x > 0.5 && Math.abs(m.eye.z) < 0.05, 'D strafes right without walking forward');
+    m.reset(); c.yaw = 0;
+    key('KeyA');
+    frames(90);
+    key('KeyA', 'keyup');
+    assert.ok(m.eye.x < -0.5 && Math.abs(m.eye.z) < 0.05, 'A strafes left');
+    // Pitch must never tilt the floor: looking up and walking still goes flat.
+    m.reset(); c.yaw = 0; c.pitch = LIMIT;
+    key('KeyW');
+    frames(90);
+    key('KeyW', 'keyup');
+    near(m.eye.y, 1.652, 0.01, 'looking straight up does not lift the player off the floor');
+    assert.ok(m.eye.z < -0.5, 'and forward is still forward');
+    c.pitch = 0;
 
     // Face -z so the movement assertions below measure travel, not the look tests' heading.
-    c.clearInput(); m.reset(); c.heading = 0;
+    c.clearInput(); m.reset(); c.yaw = 0; c.pitch = 0;
     key('KeyW');
     for (let i = 0; i < 120; i++) c.update(1 / 60);
     const walkDistance = -camera.position.z;

@@ -39,6 +39,9 @@ export type ViewerCallbacks = {
   onNavigation?: (status: NavigationStatus) => void;
   onPauseRequest?: () => void;
   onResumeRequest?: () => void;
+  /** The browser took or gave back the cursor. Includes releases nobody asked
+   * us for — Escape, a tab switch — so the prompt tracks reality. */
+  onLockChange?: (locked: boolean) => void;
 };
 
 /** OpenCV camera (+z forward, +y down) -> three.js camera (-z forward, +y up). */
@@ -116,6 +119,7 @@ export class Viewer {
     this.controls.onPadButton = (index) => { if (index === 3) this.resetToPhotographer(); };
     this.controls.onPauseRequest = () => this.cb.onPauseRequest?.();
     this.controls.onResumeRequest = () => this.cb.onResumeRequest?.();
+    this.controls.onLockChange = (locked) => this.cb.onLockChange?.(locked);
 
     this.onKeyDown = (e) => {
       if (isTyping(e) || e.repeat) return;
@@ -335,6 +339,10 @@ export class Viewer {
   setTouchMove(x: number, z: number) { this.controls.setTouchMove(x, z); }
 
   setPaused(paused: boolean) { this.controls.setPaused(paused); }
+
+  /** Capture the cursor for mouselook. Must be called from a user gesture. */
+  requestLook() { this.controls.requestLock(); }
+  releaseLook() { this.controls.releaseLock(); }
 
   setLookSensitivity(value: number) { this.controls.setSensitivity(value); }
 
