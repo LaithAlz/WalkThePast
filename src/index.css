@@ -311,7 +311,6 @@
 .sample-picker-image i { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; background: #4f7cff; transition: width .6s; }
 .photo-actions .photo-back { margin-left: auto; color: rgba(255,255,255,.72); }
 .photo-actions .photo-back:hover { color: #fff; }
-<<<<<<< HEAD
 .views-note.warn { width: 100%; text-align: left; color: #b04141; }
 
 /* The delete control sits over the card rather than inside it: the card is itself a
@@ -323,7 +322,6 @@
 .world-delete:hover { background: #b42318; }
 .world-delete.confirming { opacity: 1; background: #b42318; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
 .world-delete[disabled] { opacity: 1; background: rgba(180,35,24,.6); }
-=======
 
 /* ---- the guide: the shelf on the create screen, and making a new one ---- */
 /* The panel's head is two columns now: what you are building on the left, who
@@ -439,4 +437,3 @@
 /* Cancel walks away from something half-made, so it reads as the way out. */
 .guide-cancel { min-height: 40px; padding: 0 14px; border-radius: 9px; color: #b42318; }
 .guide-cancel:hover { background: rgba(180,35,24,.08); }
->>>>>>> origin/final-merge
