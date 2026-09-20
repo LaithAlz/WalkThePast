@@ -337,7 +337,9 @@ function Explore({ world, evidence, speaking, autoEnter = false, voice = false, 
     setSnapshot(dataUrl);
   }, []);
   const historianWorld = world.worldId ?? world.title;
-  const prepareVoice = voice && autoEnter && live;
+  // Every live world pre-warms the historian while the entry card is up: the session connects and the
+  // opening is prepared behind the card, and its first words play the moment the landing fades.
+  const prepareVoice = voice && live;
   const historianReady = !prepareVoice || readyHistorianWorld === historianWorld;
   const landingFadeResolveRef = useRef<(() => void) | null>(null);
   const beginHistorianPresentation = useCallback(() => {
