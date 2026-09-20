@@ -25,6 +25,10 @@ export async function listJobs(env: Env): Promise<JobRecord[]> {
   return await store(env).list();
 }
 
+export async function deleteJob(env: Env, id: string): Promise<boolean> {
+  return await store(env).delete(id);
+}
+
 export async function readIndex(env: Env): Promise<WorldIndexEntry[]> {
   const o = await env.WORLDS.get(INDEX_KEY);
   if (!o) return [];

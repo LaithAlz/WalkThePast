@@ -26,6 +26,10 @@ export class JobStore extends DurableObject {
     return (await this.ctx.storage.get<JobRecord>(id)) ?? null;
   }
 
+  async delete(id: string): Promise<boolean> {
+    return await this.ctx.storage.delete(id);
+  }
+
   /** Newest first, dropping anything past its day. */
   async list(): Promise<JobRecord[]> {
     const all = await this.ctx.storage.list<JobRecord>();

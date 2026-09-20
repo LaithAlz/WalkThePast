@@ -10,7 +10,7 @@ import { Marble } from "../server/marbleClient.ts";
 import { worldGuide, imagineImage } from "../server/views.ts";
 import { fetchWithRetry } from "../server/retryFetch.ts";
 import { narrate } from "./narration.ts";
-import { getJob, listJobs, publicJob, putJob, reconcile } from "./store.ts";
+import { deleteJob, getJob, listJobs, publicJob, putJob, reconcile } from "./store.ts";
 import type { Env } from "./types.ts";
 import { base64ToBytes } from "./marbleWorkflow.ts";
 import { allowedOrigin, preflight, withCors } from "./cors.ts";
@@ -136,6 +136,16 @@ async function api(request: Request, env: Env, path: string): Promise<Response> 
   }
 
   const jobOne = path.match(/^\/api\/worlds\/jobs\/([\w-]+)$/);
+  if (jobOne && request.method === "DELETE") {
+    // Dismissing a card must never abandon a generation that is still paying for itself,
+    // so only a job that has already finished can be removed.
+    const existing = await getJob(env, jobOne[1]);
+    if (!existing) return json({ error: "no such job" }, 404);
+    const settled = await reconcile(env, existing);
+    if (settled.status !== "ready" && settled.status !== "error") return json({ error: "this generation is still running" }, 409);
+    await deleteJob(env, jobOne[1]);
+    return json({ dismissed: jobOne[1] });
+  }
   if (jobOne) {
     const job = await getJob(env, jobOne[1]);
     return job ? json(publicJob(await reconcile(env, job))) : json({ error: "no such job" }, 404);
