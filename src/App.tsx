@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAuth, useSignIn, useSignUp } from "@clerk/react";
+import { SignIn, SignUp, useAuth } from "@clerk/react";
 import { WorldCanvas } from "./components/WorldCanvas";
 import type { Mode } from "./viewer/transition";
 import { VoiceHistorian } from "./components/VoiceHistorian";
@@ -147,7 +147,7 @@ export default function App() {
 
   const openAuth = (mode: AuthMode) => { setAuthMode(mode); setScreen("auth"); };
 
-  if (screen === "auth") return <Auth mode={authMode} onBack={() => setScreen("landing")} onAuthenticated={() => setScreen("library")} onModeChange={setAuthMode} />;
+  if (screen === "auth") return <Auth mode={authMode} onBack={() => setScreen("landing")} onModeChange={setAuthMode} />;
   if (screen === "upload") return <Upload onBack={() => setScreen("landing")} onGenerate={startGeneration} onExplore={explore} onAuth={() => openAuth("signup")} onLogin={() => openAuth("login")} />;
   if (screen === "samples") return <SamplePicker onBack={() => setScreen("landing")} onChoose={chooseSample} />;
   if (screen === "library") return <Library onNew={() => setScreen("upload")} onExplore={explore} onOpen={openGenerated} />;
@@ -170,88 +170,22 @@ function Landing({ onUpload, onLogin, onSignUp, onExplore }: { onUpload: () => v
 function Step({ n, title, copy }: { n: string; title: string; copy: string }) { return <article className="step"><p className="eyebrow">{n}</p><h2>{title}</h2><p>{copy}</p></article>; }
 function Chip({ color, text }: { color: "green" | "amber" | "purple"; text: string }) { return <span className={`chip ${color}`}>{text}</span>; }
 
-function Auth({ mode, onBack, onAuthenticated, onModeChange }: { mode: AuthMode; onBack: () => void; onAuthenticated: () => void; onModeChange: (mode: AuthMode) => void }) {
-  const { signIn } = useSignIn();
-  const { signUp } = useSignUp();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
-  const [stage, setStage] = useState<"credentials" | "verify">("credentials");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const finish = async (attempt: { finalize: (options: { navigate: () => void }) => Promise<unknown> }) => {
-    await attempt.finalize({ navigate: onAuthenticated });
-  };
-  const messageFor = (reason: unknown) => {
-    if (typeof reason === "object" && reason && "errors" in reason) {
-      const errors = (reason as { errors?: Array<{ longMessage?: string; message?: string }> }).errors;
-      return errors?.[0]?.longMessage ?? errors?.[0]?.message ?? "We couldn't complete that request. Please try again.";
-    }
-    return "We couldn't complete that request. Please try again.";
-  };
-  const submitCredentials = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError("");
-    setSubmitting(true);
-    try {
-      if (mode === "signup") {
-        const { error: clerkError } = await signUp.password({ emailAddress: email, password });
-        if (clerkError) { setError(messageFor(clerkError)); return; }
-        if (signUp.status === "complete") { await finish(signUp); return; }
-        await signUp.verifications.sendEmailCode();
-        setStage("verify");
-        return;
-      }
-      const { error: clerkError } = await signIn.password({ identifier: email, password });
-      if (clerkError) { setError(messageFor(clerkError)); return; }
-      if (signIn.status === "complete") { await finish(signIn); return; }
-      if (signIn.status === "needs_client_trust") {
-        await signIn.mfa.sendEmailCode();
-        setStage("verify");
-        return;
-      }
-      setError("This sign-in needs an additional verification step that is not available for this account.");
-    } catch (reason) { setError(messageFor(reason)); }
-    finally { setSubmitting(false); }
-  };
-  const continueWithGoogle = async () => {
-    setError("");
-    setSubmitting(true);
-    try {
-      const options = {
-        strategy: "oauth_google" as const,
-        redirectUrl: window.location.origin,
-        redirectCallbackUrl: window.location.origin,
-      };
-      const { error: clerkError } = mode === "signup"
-        ? await signUp.sso(options)
-        : await signIn.sso(options);
-      if (clerkError) setError(messageFor(clerkError));
-    } catch (reason) { setError(messageFor(reason)); }
-    finally { setSubmitting(false); }
-  };
-  const verifyCode = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(""); setSubmitting(true);
-    try {
-      if (mode === "signup") {
-        const { error: clerkError } = await signUp.verifications.verifyEmailCode({ code });
-        if (clerkError) { setError(messageFor(clerkError)); return; }
-        if (signUp.status === "complete") await finish(signUp);
-      } else {
-        const { error: clerkError } = await signIn.mfa.verifyEmailCode({ code });
-        if (clerkError) { setError(messageFor(clerkError)); return; }
-        if (signIn.status === "complete") await finish(signIn);
-      }
-    } catch (reason) { setError(messageFor(reason)); }
-    finally { setSubmitting(false); }
-  };
-  const switchMode = (nextMode: AuthMode) => { setError(""); setStage("credentials"); setCode(""); onModeChange(nextMode); };
-  const verifying = stage === "verify";
-  const title = mode === "signup" ? "Start your first world." : "Walk back in.";
-
-  return <main className="auth-page"><div className="auth-backdrop" /><div className="auth-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></div><form className="auth-card" onSubmit={verifying ? verifyCode : submitCredentials}><div className="auth-tabs"><button className={mode === "login" ? "active" : ""} type="button" onClick={() => switchMode("login")}>Log in</button><button className={mode === "signup" ? "active" : ""} type="button" onClick={() => switchMode("signup")}>Sign up</button></div><h1>{verifying ? "Check your email." : title}</h1>{verifying ? <><p className="auth-note">We sent a verification code to <strong>{email}</strong>.</p><label><span>VERIFICATION CODE</span><input autoComplete="one-time-code" inputMode="numeric" value={code} onChange={(event) => setCode(event.target.value)} required /></label></> : <><label><span>EMAIL</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label><span>PASSWORD</span><input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} /></label></>}{/* Clerk renders its bot-protection widget here. Without this element a custom flow falls back to an invisible CAPTCHA that fails, and every sign-up — email and Google alike — dies with "The CAPTCHA failed to load". */}<div id="clerk-captcha" />{error && <p className="auth-error" role="alert">{error}</p>}<button className="button full" type="submit" disabled={submitting}>{submitting ? "Please wait…" : verifying ? "Verify email" : mode === "signup" ? "Create account" : "Continue"}</button>{!verifying && <><div className="or">OR</div><button className="social" type="button" onClick={continueWithGoogle} disabled={submitting}>Continue with Google</button><p className="fine-print">{mode === "login" ? <>No account? <button type="button" onClick={() => switchMode("signup")}>Sign up</button></> : <>Already have an account? <button type="button" onClick={() => switchMode("login")}>Log in</button></>}</p></>}</form><p className="auth-quote">Every surface you walk past is marked by whether the camera saw it.</p></main>;
+/**
+ * Sign-in and sign-up, rendered by Clerk.
+ *
+ * This was a hand-written flow against Clerk's resources, and it silently dropped people
+ * at several points: bot protection had no element to mount its widget in, the OAuth
+ * redirect came back to a page that finished nothing, and each unhandled status just fell
+ * through to no branch at all. Clerk's own components handle the CAPTCHA, the OAuth round
+ * trip, email codes, device trust and account transfers, so none of that is ours to keep
+ * correct. The page around them stays as it was.
+ */
+function Auth({ mode, onBack, onModeChange }: { mode: AuthMode; onBack: () => void; onModeChange: (mode: AuthMode) => void }) {
+  // Land in the library whether they signed in or just signed up.
+  const shared = { fallbackRedirectUrl: PATHS.library, signInFallbackRedirectUrl: PATHS.library, signUpFallbackRedirectUrl: PATHS.library };
+  return <main className="auth-page"><div className="auth-backdrop" /><div className="auth-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></div><div className="auth-card auth-card-clerk"><div className="auth-tabs"><button className={mode === "login" ? "active" : ""} type="button" onClick={() => onModeChange("login")}>Log in</button><button className={mode === "signup" ? "active" : ""} type="button" onClick={() => onModeChange("signup")}>Sign up</button></div>{mode === "signup"
+    ? <SignUp {...shared} signInUrl={PATHS.auth} />
+    : <SignIn {...shared} signUpUrl={PATHS.auth} />}</div><p className="auth-quote">Every surface you walk past is marked by whether the camera saw it.</p></main>;
 }
 
 function Upload({ onBack, onGenerate, onExplore, onAuth, onLogin }: { onBack: () => void; onGenerate: (gen: Generation) => void; onExplore: () => void; onAuth: () => void; onLogin: () => void }) {
