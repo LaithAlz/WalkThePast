@@ -116,9 +116,10 @@ export function GuideStudio({ onClose }: Props) {
 
   // Avaturn's shared demo project is slow, their own project needs signing up
   // for, and neither is any use at four in the morning with a demo to give.
-  // Stripped from a production build.
-  const devEntry = import.meta.env.DEV ? <div className="guide-dev">
-    <span className="eyebrow">DEVELOPER · NOT IN THE BUILD</span>
+  // Kept in every build: the team's guides are Avaturn exports loaded as files, and the
+  // deployed site has no Avaturn project of its own.
+  const devEntry = <div className="guide-dev">
+    <span className="eyebrow">LOAD A RIGGED MODEL</span>
     <p>Already have a rigged humanoid <code>.glb</code>? Load it straight in, past Avaturn.
       Avaturn, Ready Player Me and Mixamo exports all work — bone names are read by meaning.
       A photograph goes through <b>Use a photo</b> above; turning one into a rigged mesh is
@@ -126,7 +127,7 @@ export function GuideStudio({ onClose }: Props) {
     <div className="guide-dev-actions">
       <input type="file" accept=".glb,model/gltf-binary" onChange={(event) => { void loadFile(event.target.files?.[0]); event.currentTarget.value = ""; }} />
     </div>
-  </div> : null;
+  </div>;
 
   const swallowDrop = (event: ReactDragEvent) => { event.preventDefault(); event.stopPropagation(); };
 
