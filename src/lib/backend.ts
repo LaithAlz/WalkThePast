@@ -52,3 +52,24 @@ export async function authHeaders(): Promise<Record<string, string>> {
     return {};
   }
 }
+
+/**
+ * A world's photograph is the one asset requested two different ways: a library card
+ * shows it in a plain <img>, while the viewer and the voice historian need it with CORS.
+ * Before the Worker answered every origin with "*", the plain request cached a reply
+ * carrying no Access-Control-Allow-Origin — immutable, for a year — and the browser then
+ * handed those same bytes to the requests that require the header.
+ *
+ * The server is right now, but a browser that cached the old reply keeps it until 2027
+ * and cannot be told otherwise. The version below changes the URL, so those browsers ask
+ * again instead. Bump it if a cached world asset ever has to be abandoned again.
+ */
+const SOURCE_IMAGE_VERSION = "2";
+
+/** A world's source photograph, at a URL no browser has a pre-CORS copy of. */
+export function sourceImage(path: string): string {
+  return `${worlds(path)}?v=${SOURCE_IMAGE_VERSION}`;
+}
+
+/** The same version, for the viewer resolving a manifest's `source.image`. */
+export const sourceImageVersion = SOURCE_IMAGE_VERSION;
