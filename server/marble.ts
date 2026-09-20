@@ -91,6 +91,7 @@ async function readJson<T>(req: IncomingMessage, limitBytes = 60 * 1024 * 1024):
 function send(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("content-type", "application/json");
+  res.setHeader("cache-control", "no-store"); // live state: never let the browser reuse an old answer
   res.end(JSON.stringify(body));
 }
 
