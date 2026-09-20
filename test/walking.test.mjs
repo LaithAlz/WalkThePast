@@ -203,6 +203,8 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
     assert.equal(c.locked, true, 'and the browser granting it is what makes us locked');
 
     // Raw deltas, applied exactly: no smoothing, no acceleration, no curve.
+    near(c.sensitivity, 2.5, 1e-12, 'a fresh controller starts at the default sensitivity');
+    c.setSensitivity(1);
     c.yaw = 0; c.pitch = 0;
     mouse(100, 0);
     near(c.yaw, -100 * 0.0025, 1e-12, 'yaw is the delta times lookSpeed, to the pixel');
@@ -303,7 +305,7 @@ test('real keyboard input: Shift sprints, E never flies, blur releases movement,
     pointer('pointerdown', { button: 0, pointerType: 'touch', clientX: 500, clientY: 400, pointerId: 5 });
     assert.equal(lockRequests, 2, 'and a finger never asks for pointer lock');
     pointer('pointermove', { pointerType: 'touch', clientX: 562, clientY: 400 });
-    near(c.yaw, -62 * 0.004, 1e-12, 'a touch swipe looks by its own delta');
+    near(c.yaw, -62 * 0.004 * c.sensitivity, 1e-12, 'a touch swipe looks by its own delta');
     pointer('pointerup', { pointerType: 'touch', clientX: 562, clientY: 400, pointerId: 5 });
     const released = c.yaw;
     pointer('pointermove', { pointerType: 'touch', clientX: 900, clientY: 400 });

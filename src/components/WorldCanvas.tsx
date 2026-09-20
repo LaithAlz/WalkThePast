@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Viewer, type EvidenceCounts, type Verdict, type ViewerStatus, type NavigationStatus } from "../viewer/Viewer";
+import { DEFAULT_SENSITIVITY } from "../viewer/controls";
 import { PhotoTransition, type Mode } from "../viewer/transition";
 import type { WorldManifest } from "../viewer/world";
 
@@ -242,6 +243,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
             <p>
               <b>Click to look around</b>
               <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> run · <kbd>M</kbd> release the cursor</span>
+              {voice && <em>Hold <kbd>Space</kbd> to talk to your tutor</em>}
             </p>
           </div>)}
       {canWalk && <div className="walking-touch" aria-label="Walking controls">
@@ -290,14 +292,18 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
   );
 }
 
-const SENSITIVITY_KEY = "wtp:look-sensitivity";
+// Versioned: the slider persists on mount, so anyone who has opened the app
+// already has the old default stored and would never see a new one. Bumping
+// the key retires those saved values along with the controller they were
+// chosen for — mouselook deltas are a different scale from cursor steering.
+const SENSITIVITY_KEY = "wtp:look-sensitivity:pointerlock";
 
 function readSensitivity(): number {
   try {
     const stored = Number(localStorage.getItem(SENSITIVITY_KEY));
     if (Number.isFinite(stored) && stored > 0) return Math.min(3, Math.max(0.25, stored));
   } catch { /* private mode */ }
-  return 1;
+  return DEFAULT_SENSITIVITY;
 }
 
 function describe(status: ViewerStatus): string {

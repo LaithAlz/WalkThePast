@@ -164,6 +164,7 @@
 .photo-card .button { min-height: 44px; }
 .photo-card .button:disabled { opacity: .55; cursor: wait; box-shadow: none; }
 .photo-enter { color: rgba(247,244,236,.5); font-size: 13px; }
+.look-prompt em { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; align-items: center; padding-top: 11px; border-top: 1px solid rgba(240,243,247,.12); color: rgba(159,182,255,.9); font: 400 13px/1.4 Manrope, sans-serif; font-style: normal; }
 .photo-enter kbd, .look-prompt kbd, .look-hint kbd { padding: 2px 7px; border: 1px solid rgba(240,243,247,.22); border-radius: 5px; background: rgba(240,243,247,.07); font: 10px 'IBM Plex Mono', monospace; color: rgba(247,244,236,.78); }
 .photo-progress { margin: 20px 0 0; }
 .photo-progress i { display: block; position: relative; height: 2px; overflow: hidden; border-radius: 2px; background: rgba(240,243,247,.13); }

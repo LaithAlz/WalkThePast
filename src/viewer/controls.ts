@@ -36,6 +36,8 @@ import type { WalkingMotor } from "./walking";
 
 /** Just short of straight up or down, so the view can never flip over. */
 const PITCH_LIMIT = (89 * Math.PI) / 180;
+/** Starting look multiplier, for someone who has never touched the slider. */
+export const DEFAULT_SENSITIVITY = 2.5;
 
 const MOVE_KEYS: Record<string, [number, number, number]> = {
   KeyW: [0, 0, -1], KeyS: [0, 0, 1], KeyA: [-1, 0, 0], KeyD: [1, 0, 0],
@@ -57,7 +59,7 @@ export class FirstPersonControls {
   /** rad per pixel of touch swipe. */
   swipeSpeed = 0.004;
   /** User multiplier over every look rate. See setSensitivity. */
-  sensitivity = 1;
+  sensitivity = DEFAULT_SENSITIVITY;
   padLookSpeed = 2.2; // rad/s at full deflection
   enabled = true;
   /** True while the browser is holding the cursor for us. */
