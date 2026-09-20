@@ -129,7 +129,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         response: {
           output_modalities: ["text"],
           instructions: quizDue
-            ? "The visitor has reached the third guided pause. Give a three-question knowledge check now, asking only about facts you actually stated in this session or well-established facts of this place; never claim something was discussed unless you said it. Call presentQuizQuestion for question 1 of 3 before speaking it, with exactly four choices and one correct answer. Read the question aloud, say the choices are on screen, then say exactly: You can answer now. Do not read the four choices aloud. Wait for the visitor's answer."
+            ? "The visitor has reached the third guided pause. Give a three-question knowledge check now, asking only about facts you actually stated in this session or well-established facts of this place; never claim something was discussed unless you said it. First speak a lead-in of two or three sentences: bridge from what you were just describing, say you would like to see what the visitor has taken in, and set up the subject of the first question. Then call presentQuizQuestion for question 1 of 3, with exactly four choices and one correct answer. Read the question aloud, say the choices are on screen, then say exactly: You can answer now. Do not read the four choices aloud. Wait for the visitor's answer."
             : "The visitor has remained silent through the guided pause. Continue the historical tour with the most meaningful next topic; do not repeat the welcome or any introduction already given. Briefly connect it to the previous segment, add new historically grounded context, do not repeat yourself, and end with: I'll pause here for you.",
         },
       });
@@ -355,8 +355,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       type: "response.create",
       response: {
         output_modalities: ["text"],
-        instructions: `The visitor selected option ${selectedOption + 1}, "${current.options[selectedOption]}". That answer is ${selectedOption === current.correctOption ? "correct: say so warmly in a few words" : `incorrect: say so plainly, and name the correct answer, "${current.options[current.correctOption]}"`}. Then explain in one or two sentences: ${current.explanation}${current.questionNumber < current.totalQuestions
-          ? ` Right after that, in this same reply, call presentQuizQuestion for question ${current.questionNumber + 1} of ${current.totalQuestions}, read that question aloud, tell the visitor the choices are on screen, and finish by saying exactly: "You can answer now." Do not read the four choices aloud.`
+        instructions: `The visitor selected option ${selectedOption + 1}, "${current.options[selectedOption]}". That answer is ${selectedOption === current.correctOption ? "correct: say so warmly" : `incorrect: say so plainly, and name the correct answer, "${current.options[current.correctOption]}"`}. Then explain in two or three sentences, with the history behind it: ${current.explanation}${current.questionNumber < current.totalQuestions
+          ? ` Right after that, in this same reply, lead into the next question with a sentence, call presentQuizQuestion for question ${current.questionNumber + 1} of ${current.totalQuestions}, read that question aloud, tell the visitor the choices are on screen, and finish by saying exactly: "You can answer now." Do not read the four choices aloud.`
           : " That was the last question. Briefly conclude the quiz, then make a natural transition: either move into the most relevant next historical subject, or ask whether the visitor would like to explore the current subject more deeply. Do not end with the standard pause sentence."}`,
       },
     });
