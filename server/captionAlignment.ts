@@ -1,5 +1,48 @@
 export type TimedWord = { word: string; start: number; end: number };
 
+/**
+ * Last-resort timings for a valid audio clip when ASR did not reproduce the
+ * supplied text closely enough for forced alignment. Captions must still use
+ * the original narration text; distributing them across the observed speech
+ * window is less exact, but avoids throwing away playable narration.
+ */
+export function estimateCaptionWords(text: string, transcription: unknown, duration: number): TimedWord[] {
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error("Invalid audio duration");
+  const words = text.match(/\S+/gu) ?? [];
+  if (!words.length) throw new Error("Missing caption words");
+
+  let speechStart = 0;
+  let speechEnd = duration;
+  if (Array.isArray(transcription) && transcription.length) {
+    const boundaries = transcription.flatMap((entry: unknown) => {
+      if (!entry || typeof entry !== "object") return [];
+      const { start, end } = entry as Partial<TimedWord>;
+      return typeof start === "number" && typeof end === "number"
+        && Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end >= start
+        && end <= duration + 0.15 ? [{ start: Math.min(start, duration), end: Math.min(end, duration) }] : [];
+    });
+    if (boundaries.length) {
+      speechStart = Math.min(...boundaries.map((entry) => entry.start));
+      speechEnd = Math.max(...boundaries.map((entry) => entry.end));
+    }
+  }
+  if (speechEnd <= speechStart) { speechStart = 0; speechEnd = duration; }
+
+  // Character weighting is a reasonable approximation of speaking time. Give
+  // punctuation-only tokens no duration so they appear with the following word.
+  const weights = words.map((word) => normalize(word).length);
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  if (!totalWeight) throw new Error("Missing caption words");
+  const span = speechEnd - speechStart;
+  let elapsedWeight = 0;
+  return words.map((word, index) => {
+    const start = speechStart + span * elapsedWeight / totalWeight;
+    elapsedWeight += weights[index];
+    const end = speechStart + span * elapsedWeight / totalWeight;
+    return { word, start, end };
+  });
+}
+
 const normalize = (text: string) => text.normalize("NFKC").toLocaleLowerCase("en")
   .replace(/(?<=\d)\.(?=\d)/g, "decimal")
   .replace(/(?<=\d)[–—-](?=\d)/g, "to")

@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { createNarrationHandler } from "../server/narration.ts";
-import { alignCaptionWords } from "../server/captionAlignment.ts";
+import { alignCaptionWords, estimateCaptionWords } from "../server/captionAlignment.ts";
 
 const word = (text, start, end = start + 0.2) => ({ word: text, start, end });
 const wav = (seconds = 5) => {
@@ -53,6 +53,19 @@ test("mismatched names, wrong numbers, missing and invalid timestamps fail close
     ["Hello", []], ["Hello", [word("Hello", -1)]],
     ["Hello", [word("Hello", 0, 10)]], ["Hello", [word("Hello", Number.NaN)]],
   ]) assert.throws(() => alignCaptionWords(text, words, 5));
+});
+
+test("estimated captions preserve the exact text and use a valid observed speech window", () => {
+  const estimated = estimateCaptionWords("Khafre spoke clearly.", [
+    word("Coffee", 0.5, 1), word("spoke", 1.2, 1.6), word("clearly", 1.8, 2.5),
+  ], 4);
+  assert.deepEqual(estimated.map(({ word: text }) => text), ["Khafre", "spoke", "clearly."]);
+  assert.equal(estimated[0].start, 0.5);
+  assert.equal(estimated.at(-1).end, 2.5);
+  assert.ok(estimated.every((entry, index) => index === 0 || entry.start === estimated[index - 1].end));
+  const withoutUsableAsr = estimateCaptionWords("Still works.", [{ word: "Still", start: -1, end: 20 }], 3);
+  assert.equal(withoutUsableAsr[0].start, 0);
+  assert.equal(withoutUsableAsr.at(-1).end, 3);
 });
 
 test("endpoint prepares WAV plus aligned captions without exposing credentials", async () => {
@@ -118,8 +131,8 @@ test("truncated audio and inconsistent PCM metadata fail before transcription", 
   }
 });
 
-test("upstream and alignment failures return useful errors without upstream secrets or audio", async () => {
-  for (const reply of [new Response("private upstream diagnostic", { status: 500 }), Response.json({ words: [word("Wrong", 0.1)] })]) {
+test("upstream failures return useful errors without upstream secrets or audio", async () => {
+  for (const reply of [new Response("private upstream diagnostic", { status: 500 })]) {
     let calls = 0;
     const { res, complete } = request({ text: "Giza" }, {
       fetchImpl: async () => ++calls === 1 ? new Response(wav()) : reply,
@@ -129,6 +142,21 @@ test("upstream and alignment failures return useful errors without upstream secr
     assert.equal("audio" in res.body, false);
     assert.equal(JSON.stringify(res.body).includes("private"), false);
   }
+});
+
+test("ASR wording differences fall back to estimated captions instead of discarding valid audio", async () => {
+  let calls = 0;
+  const { res, complete } = request({ text: "Giza is ancient." }, {
+    fetchImpl: async () => ++calls === 1 ? new Response(wav()) : Response.json({
+      words: [word("Geezer", 0.4, 0.9), word("is", 1, 1.2), word("ancient", 1.3, 2.1)],
+    }),
+  });
+  await complete;
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.words.map(({ word: text }) => text), ["Giza", "is", "ancient."]);
+  assert.equal(res.body.words[0].start, 0.4);
+  assert.equal(res.body.words.at(-1).end, 2.1);
+  assert.deepEqual(Buffer.from(res.body.audio, "base64"), wav());
 });
 
 test("timeout aborts upstream work and responds with a retryable error", async () => {

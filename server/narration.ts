@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { alignCaptionWords } from "./captionAlignment.ts";
+import { alignCaptionWords, estimateCaptionWords } from "./captionAlignment.ts";
 
 const MAX_BODY_BYTES = 8_192;
 const MAX_TEXT_LENGTH = 1_200;
@@ -150,7 +150,7 @@ export function createNarrationHandler({ apiKey, fetchImpl = fetch, timeoutMs = 
       const transcription = await timing.json() as { words?: unknown };
       let words;
       try { words = alignCaptionWords(text, transcription.words, duration); }
-      catch { throw new NarrationError(502, "Could not align narration with its captions. Please retry."); }
+      catch { words = estimateCaptionWords(text, transcription.words, duration); }
       if (!controller.signal.aborted) reply(200, { audio: audio.toString("base64"), words });
     } catch (error) {
       if (timedOut) reply(504, { error: "Preparing synchronized narration timed out. Please retry." });
