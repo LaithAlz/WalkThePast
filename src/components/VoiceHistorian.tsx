@@ -269,7 +269,7 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
           })}
         </div>
         {voice.quiz.selectedOption !== undefined && <p role="status">
-          The correct answer is {String.fromCharCode(65 + voice.quiz.correctOption)} — {voice.quiz.options[voice.quiz.correctOption]}.
+          The correct answer is {String.fromCharCode(65 + voice.quiz.correctOption)}: {voice.quiz.options[voice.quiz.correctOption]}.
         </p>}
       </section>}
       <blockquote className={!voice.error && !voice.caption ? "is-empty" : undefined} aria-live="polite">

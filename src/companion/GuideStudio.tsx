@@ -121,7 +121,7 @@ export function GuideStudio({ onClose }: Props) {
   const devEntry = <div className="guide-dev">
     <span className="eyebrow">LOAD A RIGGED MODEL</span>
     <p>Already have a rigged humanoid <code>.glb</code>? Load it straight in, past Avaturn.
-      Avaturn, Ready Player Me and Mixamo exports all work — bone names are read by meaning.
+      Avaturn, Ready Player Me and Mixamo exports all work; bone names are read by meaning.
       A photograph goes through <b>Use a photo</b> above; turning one into a rigged mesh is
       Avaturn's job, not something this can do locally.</p>
     <div className="guide-dev-actions">
@@ -150,13 +150,13 @@ export function GuideStudio({ onClose }: Props) {
           <p className="eyebrow blue">NEW GUIDE</p>
           <h1>Who is<br /><em>showing you round?</em></h1>
           <p className="lede">
-            Give Avaturn a photograph — a selfie, or a portrait of whoever should be showing you
-            round — and it turns that face into a rigged character, in your browser, in about a
+            Give Avaturn a photograph (a selfie, or a portrait of whoever should be showing you
+            round) and it turns that face into a rigged character, in your browser, in about a
             minute. They become the historian who walks the world with you, pointing things out and
             answering when you hold <kbd>Space</kbd>.
           </p>
           <p className="guide-note">
-            You stay behind your own eyes — the face belongs to your guide, not to you. Upload the
+            You stay behind your own eyes; the face belongs to your guide, not to you. Upload the
             photograph inside Avaturn's own step, on the screen after this one. It never leaves your
             browser, and neither does the character.
           </p>
