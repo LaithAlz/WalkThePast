@@ -27,6 +27,13 @@ test("ordinary sentence-opening capitals remain plain text", () => {
   assert.equal(parts.some((part) => part.entity), false);
 });
 
+test("pronoun contractions are never treated as named entities", () => {
+  const inferred = inferCaptionEntities("I'll compare Memphis. I’ll explain why. We'll then visit Alexandria.");
+  assert.deepEqual(inferred.map(({ label }) => label), ["Memphis", "Alexandria"]);
+  const linkedText = enrichCaption("I'll discuss Cairo.").filter((part) => part.entity).map((part) => part.text);
+  assert.deepEqual(linkedText, ["Cairo"]);
+});
+
 test("explicit model entities override inferred references", () => {
   const explicit = {
     id: "alexandria-reviewed", label: "Alexandria", kind: "place",

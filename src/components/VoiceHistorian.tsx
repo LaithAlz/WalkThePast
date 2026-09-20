@@ -13,9 +13,10 @@ type Props = {
   onPresentationReady?: () => void | Promise<void>;
   paused?: boolean;
   showMediaControls?: boolean;
+  onQuizActiveChange?: (active: boolean) => void;
 };
 
-export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, paused = false, showMediaControls = false }: Props) {
+export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, paused = false, showMediaControls = false, onQuizActiveChange }: Props) {
   const voice = useRealtimeHistorian({
     world: {
       id: world.worldId ?? "unknown",
@@ -46,6 +47,10 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
   useEffect(() => {
     if (voice.error) void onPresentationReady?.();
   }, [voice.error, onPresentationReady]);
+  useEffect(() => {
+    onQuizActiveChange?.(!!voice.quiz);
+    return () => onQuizActiveChange?.(false);
+  }, [voice.quiz, onQuizActiveChange]);
   useEffect(() => {
     if (paused) pause("detour");
     else resume("detour");
@@ -86,6 +91,21 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
       window.removeEventListener("blur", release);
     };
   }, [connect, setMicrophoneMuted]);
+  const submitQuizAnswerRef = useRef(voice.submitQuizAnswer);
+  useEffect(() => { submitQuizAnswerRef.current = voice.submitQuizAnswer; }, [voice.submitQuizAnswer]);
+  useEffect(() => {
+    if (!voice.quiz || voice.quiz.selectedOption !== undefined || voice.status !== "listening" || voice.isPaused) return;
+    const answerWithLetter = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, [contenteditable=true]") || event.altKey || event.ctrlKey || event.metaKey) return;
+      const option = ["KeyA", "KeyB", "KeyC", "KeyD"].indexOf(event.code);
+      if (option < 0) return;
+      event.preventDefault();
+      submitQuizAnswerRef.current(option);
+    };
+    window.addEventListener("keydown", answerWithLetter);
+    return () => window.removeEventListener("keydown", answerWithLetter);
+  }, [voice.quiz, voice.status, voice.isPaused]);
 
   return (
     <div className={`voice-historian${showMediaControls ? " has-media-controls" : ""}`}>
@@ -160,6 +180,34 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
           <span className="visually-hidden">{voice.isMicMuted ? "Unmute mic" : "Mute mic"}</span>
         </button>}
       </div>
+      {voice.quiz && <section className={`historian-quiz${voice.quiz.selectedOption !== undefined
+        ? ` is-feedback ${voice.quiz.selectedOption === voice.quiz.correctOption ? "is-correct-feedback" : "is-wrong-feedback"}`
+        : ""}`} aria-labelledby={`quiz-question-${voice.quiz.id}`}>
+        <div className="historian-quiz-heading">
+          <span>KNOWLEDGE CHECK</span>
+          <small>{voice.quiz.questionNumber} / {voice.quiz.totalQuestions}</small>
+        </div>
+        <h2 id={`quiz-question-${voice.quiz.id}`}>{voice.quiz.question}</h2>
+        <div className="historian-quiz-options">
+          {voice.quiz.options.map((option, index) => {
+            const answered = voice.quiz?.selectedOption !== undefined;
+            const selected = voice.quiz?.selectedOption === index;
+            const correct = answered && voice.quiz?.correctOption === index;
+            return <button
+              type="button"
+              key={`${voice.quiz?.id}-${index}`}
+              className={`${selected ? "is-selected" : ""}${correct ? " is-correct" : ""}${selected && !correct ? " is-wrong" : ""}`}
+              disabled={answered || voice.status !== "listening" || voice.isPaused}
+              onClick={() => voice.submitQuizAnswer(index)}
+            >
+              <b>{String.fromCharCode(65 + index)}</b><span>{option}</span>
+            </button>;
+          })}
+        </div>
+        {voice.quiz.selectedOption !== undefined && <p role="status">
+          The correct answer is {String.fromCharCode(65 + voice.quiz.correctOption)} — {voice.quiz.options[voice.quiz.correctOption]}.
+        </p>}
+      </section>}
       <blockquote className={!voice.error && !voice.caption ? "is-empty" : undefined} aria-live="polite">
         {voice.error || captionParts.map((part, index) => part.entity ? (
           <button className={`caption-entity is-${part.entity.kind}`} type="button" key={`entity-${part.entity.id}-${index}`} onClick={() => onEntity(part.entity!)} title={`Explore ${part.entity.label}`}>

@@ -402,6 +402,91 @@ test("return after completed narration stays silent and replay uses cached audio
   assert.equal(f.creates().length, 1);
 });
 
+const quiz = (callId, questionNumber = 1, totalQuestions = 2) => ({
+  name: "presentQuizQuestion", call_id: callId,
+  arguments: JSON.stringify({
+    question: `Question ${questionNumber}?`, options: ["Alpha", "Beta", "Gamma", "Delta"],
+    correctOption: 1, explanation: "Beta is historically correct.", questionNumber, totalQuestions,
+  }),
+});
+
+test("a silent visitor gets the next guided segment after seven seconds", async (t) => {
+  const f = await createHistorian(); t.after(() => f.cleanup());
+  await f.start(opening); f.finishResponse(); f.end();
+  assert.equal(f.voice.status, "listening");
+  assert.equal(f.creates().length, 1);
+  assert.deepEqual([...f.timers.values()].map(({ delay }) => delay), [7000]);
+  f.clock.advance(7000);
+  f.act(() => {});
+  assert.equal(f.creates().length, 2);
+  assert.match(f.creates().at(-1).response.instructions, /visitor has remained silent/i);
+  assert.match(f.creates().at(-1).response.instructions, /most meaningful next topic/i);
+  assert.equal(f.voice.status, "thinking");
+});
+
+test("quiz feedback remains visible and the next question waits for spoken feedback to finish", async (t) => {
+  const f = await createHistorian(); t.after(() => f.cleanup());
+  f.event("response.created", { response: { id: "quiz-tool", status: "in_progress", output: [] } });
+  f.event("response.function_call_arguments.done", quiz("quiz-1"));
+  f.finishResponse();
+  assert.equal(f.voice.quiz.questionNumber, 1);
+
+  f.act((voice) => voice.submitQuizAnswer(0));
+  assert.equal(f.voice.quiz.selectedOption, 0);
+  const feedbackRequest = f.creates().at(-1);
+  assert.match(feedbackRequest.response.instructions, /do not call presentQuizQuestion/i);
+
+  await f.start("The correct answer is Beta because it is historically correct.", "quiz-feedback");
+  f.finishResponse();
+  assert.equal(f.voice.quiz.questionNumber, 1, "the answered card stays mounted during feedback");
+  const createsBeforePlaybackEnds = f.creates().length;
+  f.end();
+  assert.equal(f.voice.quiz, null);
+  assert.equal(f.creates().length, createsBeforePlaybackEnds + 1);
+  assert.match(f.creates().at(-1).response.instructions, /question 2 of 2/i);
+});
+
+test("final quiz feedback offers a natural historical continuation", async (t) => {
+  const f = await createHistorian(); t.after(() => f.cleanup());
+  f.event("response.created", { response: { id: "final-quiz-tool", status: "in_progress", output: [] } });
+  f.event("response.function_call_arguments.done", quiz("final-quiz", 1, 1));
+  f.finishResponse();
+  f.act((voice) => voice.submitQuizAnswer(1));
+  const instructions = f.creates().at(-1).response.instructions;
+  assert.match(instructions, /most relevant next historical subject/i);
+  assert.match(instructions, /explore the current subject more deeply/i);
+});
+
+test("visitor speech or a paused tour cancels automatic continuation", async (t) => {
+  const speaking = await createHistorian(); t.after(() => speaking.cleanup());
+  await speaking.start(opening); speaking.finishResponse(); speaking.end();
+  speaking.event("input_audio_buffer.speech_started");
+  speaking.clock.advance(60_000);
+  speaking.act(() => {});
+  assert.equal(speaking.creates().length, 1, "the historian never talks over the visitor");
+
+  const paused = await createHistorian(); t.after(() => paused.cleanup());
+  await paused.start(opening); paused.finishResponse(); paused.end();
+  paused.act((voice) => voice.pause("transport"));
+  paused.clock.advance(60_000);
+  paused.act(() => {});
+  assert.equal(paused.creates().length, 1, "a paused tour stays paused");
+  paused.act((voice) => voice.resume("transport"));
+  assert.deepEqual([...paused.timers.values()].map(({ delay }) => delay), [7000]);
+});
+
+test("mic toggles preserve the guided pause until actual speech begins", async (t) => {
+  const f = await createHistorian(); t.after(() => f.cleanup());
+  await f.start(opening); f.finishResponse(); f.end();
+  f.act((voice) => voice.setMicrophoneMuted(false));
+  assert.deepEqual([...f.timers.values()].map(({ delay }) => delay), [7000]);
+  f.act((voice) => voice.setMicrophoneMuted(true));
+  assert.deepEqual([...f.timers.values()].map(({ delay }) => delay), [7000]);
+  f.clock.advance(7000);
+  f.act(() => {});
+  assert.equal(f.creates().length, 2);
+});
+
 test("detours preserve unmuted microphone preference while disabling paused input", async (t) => {
   const f = await createHistorian(); t.after(() => f.cleanup());
   await f.start("Welcome."); f.finishResponse(); f.end();

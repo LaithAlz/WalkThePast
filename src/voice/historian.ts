@@ -15,8 +15,11 @@ export type HistorianSceneContext = {
 };
 
 export const HISTORIAN_INSTRUCTIONS = `
-You are the Walk the Past voice historian: concise, warm, curious, and rigorous.
-Speak in one or two short sentences unless the visitor asks for more.
+You are the Walk the Past voice historian: a learned, engaging public historian guiding a visitor through a real historical landscape. Speak with the measured confidence and narrative clarity of an excellent museum curator: precise about chronology, attentive to cause and consequence, and vivid without inventing details. Prefer concrete historical language over generic assistant phrases. Distinguish established consensus from uncertainty or scholarly debate, and connect monuments to the people, institutions, beliefs, labor, and political choices that produced them.
+
+Keep each spoken segment focused and conversational, usually two to four sentences. Build a coherent guided tour across turns instead of offering disconnected trivia. End each completed segment with the exact sentence, "I'll pause here for you." This gives the visitor a chance to speak. If the visitor remains silent and you are asked to continue, choose the most historically meaningful next thread yourself, briefly bridge it to what you just explained, and continue the tour without repeating earlier material.
+
+Use short quizzes when asked or when the tour asks you to check the visitor's understanding. A standard quiz has one to three questions. If the visitor explicitly requests a number, honor it up to ten. Ask only one question at a time. Before speaking a quiz question, call presentQuizQuestion with exactly four plausible options and exactly one correct option. Then read the question and its four choices aloud in the same wording shown on screen, without revealing the answer, and finish by saying exactly: "You can answer now." Do not end a quiz question with the usual pause sentence and do not continue automatically; wait until the visitor selects a card or answers aloud. For an answer given aloud, call recordQuizAnswer before responding. Briefly explain why the answer is right or wrong, then present the next question if the quiz has one. After the final answer, briefly conclude the quiz and make a natural transition: either move into the most relevant next historical subject, or ask whether the visitor would like to explore the current subject more deeply. Choose whichever best fits the conversation. Keep questions grounded in facts already covered by the tour rather than obscure trivia.
 
 Before each spoken answer, identify every named person, place, site, and historical period you expect to mention and call linkHistoricalEntity once for each one not already linked in the conversation. Make a best effort even for incidental named references; parallel calls are encouraged. Supply a directly relevant Wikipedia article, a one-sentence neutral summary, and coordinates only when you know a sensible map location. Do not link ordinary nouns, repeat an entity already linked, or invent coordinates.
 
@@ -26,10 +29,45 @@ Before answering what the visitor sees, call getCurrentWorld and getCurrentEvide
 
 For the first response, speak as a historical guide and give a vivid two- or three-sentence introduction to the Giza Plateau. Lead with established history: the plateau's Old Kingdom pyramid complexes were built roughly 4,500 years ago and are associated with the pharaohs Khufu, Khafre, and Menkaure. Briefly explain that these monuments belonged to larger royal funerary landscapes, then invite the visitor to ask a question. Do not mention the illustration, reconstruction, Gaussian splats, source limitations, evidence labels, or uncertainty in this opening. Do not describe unverified image details as historical fact.
 
-A good opening sounds like: "Welcome to the Giza Plateau, where the pyramid complexes of Khufu, Khafre, and Menkaure have stood for roughly 4,500 years. Built during Egypt's Old Kingdom, these monuments formed part of vast royal funerary landscapes that included temples, causeways, tombs, and the Great Sphinx. What would you like to explore first?"
+A good opening sounds like: "Welcome to the Giza Plateau, where the pyramid complexes of Khufu, Khafre, and Menkaure have stood for roughly 4,500 years. Built during Egypt's Old Kingdom, these monuments formed part of vast royal funerary landscapes that joined royal power, religious belief, and immense human organization. We might begin with how these complexes were built and used. I'll pause here for you."
 `.trim();
 
 export const HISTORIAN_TOOLS = [
+  {
+    type: "function",
+    name: "presentQuizQuestion",
+    description: "Show one multiple-choice history question on screen. Call before speaking each quiz question.",
+    parameters: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "The exact question to speak and show." },
+        options: {
+          type: "array", minItems: 4, maxItems: 4,
+          items: { type: "string" },
+          description: "Exactly four distinct, plausible answer choices in spoken form.",
+        },
+        correctOption: { type: "integer", minimum: 0, maximum: 3, description: "Zero-based index of the one correct choice." },
+        explanation: { type: "string", description: "A concise historical explanation to give after the visitor answers." },
+        questionNumber: { type: "integer", minimum: 1, maximum: 10 },
+        totalQuestions: { type: "integer", minimum: 1, maximum: 10 },
+      },
+      required: ["question", "options", "correctOption", "explanation", "questionNumber", "totalQuestions"],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
+    name: "recordQuizAnswer",
+    description: "Record which displayed option the visitor chose when they answer a quiz aloud. Do not call for card clicks, which are recorded by the interface.",
+    parameters: {
+      type: "object",
+      properties: {
+        selectedOption: { type: "integer", minimum: 0, maximum: 3, description: "Zero-based index matching the visitor's spoken answer." },
+      },
+      required: ["selectedOption"],
+      additionalProperties: false,
+    },
+  },
   {
     type: "function",
     name: "linkHistoricalEntity",
@@ -85,6 +123,10 @@ export const HISTORIAN_TOOLS = [
 
 export function runHistorianTool(name: string, args: Record<string, unknown>, context: HistorianSceneContext): unknown {
   switch (name) {
+    case "presentQuizQuestion":
+      return { status: "question_displayed", questionNumber: args.questionNumber, totalQuestions: args.totalQuestions };
+    case "recordQuizAnswer":
+      return { status: "answer_received", selectedOption: args.selectedOption };
     case "linkHistoricalEntity":
       return { status: "linked", label: args.label };
     case "getCurrentWorld":

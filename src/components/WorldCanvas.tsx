@@ -23,9 +23,10 @@ type Props = {
   onExit?: () => void;
   voice?: boolean;
   onPaused?: (paused: boolean) => void;
+  quizActive?: boolean;
 };
 
-export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady = true, waitingMessage = "Preparing the experience…", onLandingHidden, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit, voice = false, onPaused }: Props) {
+export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady = true, waitingMessage = "Preparing the experience…", onLandingHidden, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit, voice = false, onPaused, quizActive = false }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLImageElement>(null);
@@ -161,6 +162,17 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
     }
   }, [suspended, onSnapshot, mode]);
 
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || suspended) return;
+    if (quizActive) {
+      if (document.pointerLockElement) void document.exitPointerLock();
+      viewer.setInteractive(false);
+    } else {
+      viewer.setInteractive(mode === "world");
+    }
+  }, [quizActive, suspended, mode]);
+
   const ready = status.kind === "ready";
   const canEnter = ready && entryReady;
   const enter = async () => {
@@ -245,7 +257,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady =
       {/* While the cursor is captured nothing on screen can be clicked, so the
           way out has to be a key. This says which one, and the prompt it turns
           into is the way back in — it lets the click through to the canvas. */}
-      {inWorld && ready && !pauseMenu && (locked
+      {inWorld && ready && !pauseMenu && !quizActive && (locked
         ? <p className="look-hint"><kbd>M</kbd> free the cursor</p>
         : <div className="look-prompt" role="status">
             <p>

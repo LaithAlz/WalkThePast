@@ -17,9 +17,21 @@ type ServerEvent = {
   response?: { id?: string; status?: string; output?: ResponseItem[]; status_details?: { error?: { message?: string } } };
 };
 type TextPart = { received: string; pending: string; done: boolean };
+export type HistorianQuiz = {
+  id: string;
+  question: string;
+  options: [string, string, string, string];
+  correctOption: number;
+  explanation: string;
+  questionNumber: number;
+  totalQuestions: number;
+  selectedOption?: number;
+};
 
 /** How long an ICE drop may last before the session is declared lost. */
 const ICE_RECOVERY_MS = 8000;
+/** Let the visitor answer before the guided narrative advances on its own. */
+const GUIDED_PAUSE_MS = 7000;
 
 export function useRealtimeHistorian(context: HistorianSceneContext, options: { beforeFirstPlay?: () => void | Promise<void> } = {}) {
   const beforeFirstPlay = options.beforeFirstPlay;
@@ -33,6 +45,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
   const [isPaused, setIsPaused] = useState(false);
   const [isTransportPaused, setIsTransportPaused] = useState(false);
   const [entities, setEntities] = useState<HistoricalEntity[]>([]);
+  const [quiz, setQuiz] = useState<HistorianQuiz | null>(null);
   const contextRef = useRef(context);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
@@ -53,6 +66,9 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
   const pausedRef = useRef(false);
   const pauseReasonsRef = useRef(new Set<"transport" | "detour">());
   const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const guidedPauseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const guidedPauseCountRef = useRef(0);
+  const quizRef = useRef<HistorianQuiz | null>(null);
   useEffect(() => { contextRef.current = context; }, [context]);
 
   const send = useCallback((event: { type: string; [key: string]: unknown }) => {
@@ -71,7 +87,36 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     }
   }, []);
 
+  const clearGuidedPause = useCallback(() => {
+    clearTimeout(guidedPauseTimerRef.current);
+    guidedPauseTimerRef.current = undefined;
+  }, []);
+
+  const scheduleGuidedContinuation = useCallback(() => {
+    clearGuidedPause();
+    if (quizRef.current || pausedRef.current || userSpeakingRef.current || activeResponseRef.current || responseRequestedRef.current
+      || channelRef.current?.readyState !== "open" || playerRef.current?.state !== "idle") return;
+    guidedPauseTimerRef.current = setTimeout(() => {
+      guidedPauseTimerRef.current = undefined;
+      if (quizRef.current || pausedRef.current || userSpeakingRef.current || activeResponseRef.current || responseRequestedRef.current
+        || channelRef.current?.readyState !== "open" || playerRef.current?.state !== "idle") return;
+      const quizDue = guidedPauseCountRef.current >= 3;
+      if (quizDue) guidedPauseCountRef.current = 0;
+      setStatus("thinking");
+      send({
+        type: "response.create",
+        response: {
+          output_modalities: ["text"],
+          instructions: quizDue
+            ? "The visitor has reached the third guided pause. Give a short one-to-three-question knowledge check now. Call presentQuizQuestion for the first question before speaking it, use exactly four choices with one correct answer, read all four choices, then say exactly: You can answer now. Wait for the visitor's answer."
+            : "The visitor has remained silent through the guided pause. Continue the historical tour with the most meaningful next topic. Briefly connect it to the previous segment, add new historically grounded context, do not repeat yourself, and end with: I'll pause here for you.",
+        },
+      });
+    }, GUIDED_PAUSE_MS);
+  }, [clearGuidedPause, send]);
+
   const interruptNarration = useCallback(() => {
+    clearGuidedPause();
     if (responseRequestedRef.current) cancelRequestedResponseRef.current = true;
     const responseId = activeResponseRef.current;
     if (responseId) {
@@ -84,7 +129,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     playerRef.current?.reset();
     setCanReplay(false);
     setCaption("");
-  }, [send]);
+  }, [clearGuidedPause, send]);
 
   const disconnect = useCallback(() => {
     // Fence setup, channel events, and pending audio requests before releasing resources.
@@ -94,6 +139,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     connectingRef.current = false;
     clearTimeout(recoveryTimerRef.current);
     recoveryTimerRef.current = undefined;
+    clearTimeout(guidedPauseTimerRef.current);
+    guidedPauseTimerRef.current = undefined;
     const player = playerRef.current;
     playerRef.current = null;
     player?.dispose();
@@ -111,6 +158,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     cancelRequestedResponseRef.current = false;
     toolContinuationRef.current = false;
     userSpeakingRef.current = false;
+    guidedPauseCountRef.current = 0;
+    quizRef.current = null;
     userMutedRef.current = true;
     pausedRef.current = false;
     pauseReasonsRef.current.clear();
@@ -118,6 +167,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     setCaption("");
     setUserCaption("");
     setEntities([]);
+    setQuiz(null);
     setIsMicMuted(true);
     setCanToggleMic(false);
     setCanReplay(false);
@@ -149,15 +199,20 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     if (!nextMuted) {
       interruptNarration();
       setStatus("listening");
+      scheduleGuidedContinuation();
     }
     userMutedRef.current = nextMuted;
     tracks.forEach((track) => { track.enabled = !nextMuted && !pausedRef.current; });
     setIsMicMuted(nextMuted);
-    if (nextMuted) setUserCaption("");
-  }, [interruptNarration]);
+    if (nextMuted) {
+      setUserCaption("");
+      scheduleGuidedContinuation();
+    }
+  }, [interruptNarration, scheduleGuidedContinuation]);
   const toggleMic = useCallback(() => { setMicrophoneMuted(!userMutedRef.current); }, [setMicrophoneMuted]);
 
   const pause = useCallback((reason: "transport" | "detour" = "transport") => {
+    clearGuidedPause();
     pauseReasonsRef.current.add(reason);
     if (reason === "transport") setIsTransportPaused(true);
     setIsPaused(true);
@@ -165,7 +220,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     pausedRef.current = true;
     playerRef.current?.pause();
     streamRef.current?.getAudioTracks().forEach((track) => { track.enabled = false; });
-  }, []);
+  }, [clearGuidedPause]);
   const resume = useCallback((reason: "transport" | "detour" = "transport") => {
     pauseReasonsRef.current.delete(reason);
     if (reason === "transport") setIsTransportPaused(false);
@@ -175,7 +230,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     pausedRef.current = false;
     playerRef.current?.resume();
     streamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !userMutedRef.current; });
-  }, []);
+    scheduleGuidedContinuation();
+  }, [scheduleGuidedContinuation]);
   const togglePlayback = useCallback(() => {
     if (pauseReasonsRef.current.has("transport")) resume("transport");
     else pause("transport");
@@ -188,15 +244,67 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     handledCalls.current.add(callId);
     let args: Record<string, unknown> = {};
     try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
-    if (call.name === "linkHistoricalEntity") {
+    let output: unknown;
+    if (call.name === "presentQuizQuestion") {
+      const nextQuiz = quizFromTool(callId, args);
+      if (nextQuiz) {
+        clearGuidedPause();
+        quizRef.current = nextQuiz;
+        setQuiz(nextQuiz);
+        output = { status: "question_displayed", questionNumber: nextQuiz.questionNumber, totalQuestions: nextQuiz.totalQuestions };
+      } else output = { error: "invalid_quiz_question" };
+    } else if (call.name === "recordQuizAnswer") {
+      const selectedOption = args.selectedOption;
+      const current = quizRef.current;
+      if (current && typeof selectedOption === "number" && Number.isInteger(selectedOption) && selectedOption >= 0 && selectedOption <= 3) {
+        const answered = { ...current, selectedOption };
+        quizRef.current = answered;
+        setQuiz(answered);
+        output = {
+          status: "answer_recorded",
+          correct: selectedOption === current.correctOption,
+          correctOption: current.correctOption,
+          explanation: current.explanation,
+          questionNumber: current.questionNumber,
+          totalQuestions: current.totalQuestions,
+        };
+      } else output = { error: "no_active_quiz_question" };
+    } else if (call.name === "linkHistoricalEntity") {
       const linked = historicalEntityFromTool(args);
       if (linked) setEntities((current) => [...current.filter((item) => item.label.toLocaleLowerCase() !== linked.label.toLocaleLowerCase()), linked]);
+      output = runHistorianTool(call.name || "", args, contextRef.current);
+    } else {
+      output = runHistorianTool(call.name || "", args, contextRef.current);
     }
-    const output = runHistorianTool(call.name || "", args, contextRef.current);
     send({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) } });
     // Parallel tool calls cause one continuation after the originating response ends.
     toolContinuationRef.current = true;
-  }, [send]);
+  }, [clearGuidedPause, send]);
+
+  const submitQuizAnswer = useCallback((selectedOption: number) => {
+    const current = quizRef.current;
+    if (!current || current.selectedOption !== undefined || !Number.isInteger(selectedOption)
+      || selectedOption < 0 || selectedOption > 3 || channelRef.current?.readyState !== "open") return;
+    clearGuidedPause();
+    const answered = { ...current, selectedOption };
+    quizRef.current = answered;
+    setQuiz(answered);
+    setStatus("thinking");
+    send({
+      type: "conversation.item.create",
+      item: {
+        type: "message", role: "user",
+        content: [{ type: "input_text", text: `Quiz answer: option ${selectedOption + 1}, "${current.options[selectedOption]}".` }],
+      },
+    });
+    send({
+      type: "response.create",
+      response: {
+        output_modalities: ["text"],
+        instructions: `The visitor selected option ${selectedOption + 1}. That answer is ${selectedOption === current.correctOption ? "correct" : "incorrect"}. Give only brief feedback on this answer and explain: ${current.explanation} Do not call presentQuizQuestion and do not introduce the next question yet.${current.questionNumber === current.totalQuestions ? " Briefly conclude the quiz, then make a natural transition: either move into the most relevant next historical subject, or ask whether the visitor would like to explore the current subject more deeply. Choose whichever best fits the conversation. Do not end with the standard pause sentence." : ""}`,
+      },
+    });
+  }, [clearGuidedPause, send]);
 
   const queueText = useCallback((event: ServerEvent, final: boolean) => {
     const key = (event.item_id ?? event.response_id) + ":" + (event.content_index ?? 0);
@@ -238,6 +346,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         break;
       case "response.created":
         if (!responseId) break;
+        clearGuidedPause();
         responseRequestedRef.current = false;
         if (userSpeakingRef.current || cancelRequestedResponseRef.current) {
           cancelRequestedResponseRef.current = false;
@@ -290,7 +399,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         fail(event.error?.message || "Realtime voice error");
         break;
     }
-  }, [answerTool, fail, interruptNarration, queueText, send]);
+  }, [answerTool, clearGuidedPause, fail, interruptNarration, queueText, send]);
 
   const connect = useCallback(async () => {
     if (connectingRef.current || channelRef.current?.readyState === "open") return;
@@ -326,6 +435,27 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           if (!current() || activeResponseRef.current || responseRequestedRef.current || toolContinuationRef.current) return;
           setStatus("listening");
           setCanReplay(player.canReplay);
+          const activeQuiz = quizRef.current;
+          if (activeQuiz && activeQuiz.selectedOption === undefined) return;
+          if (activeQuiz) {
+            quizRef.current = null;
+            setQuiz(null);
+            if (activeQuiz.questionNumber < activeQuiz.totalQuestions) {
+              setStatus("thinking");
+              send({
+                type: "response.create",
+                response: {
+                  output_modalities: ["text"],
+                  instructions: `The spoken feedback for question ${activeQuiz.questionNumber} has finished. Now call presentQuizQuestion for question ${activeQuiz.questionNumber + 1} of ${activeQuiz.totalQuestions}, then read that question and its four choices aloud and finish by saying exactly: "You can answer now." Do not repeat the previous feedback.`,
+                },
+              });
+              return;
+            }
+            scheduleGuidedContinuation();
+            return;
+          }
+          guidedPauseCountRef.current += 1;
+          scheduleGuidedContinuation();
         },
         onError: (reason) => { if (current()) fail(reason.message); },
       });
@@ -405,7 +535,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           type: "response.create",
           response: {
             output_modalities: ["text"],
-            instructions: "Give the historical opening now. Lead with established facts about the Giza Plateau and its Old Kingdom pyramid complexes, then invite the visitor to ask a question. Do not mention the image, reconstruction, technology, provenance, or source limitations in this opening.",
+            instructions: "Give the historical opening now. Sound like an expert public historian, lead with established facts about the Giza Plateau and its Old Kingdom pyramid complexes, and establish the first meaningful thread of a guided tour. Do not mention the image, reconstruction, technology, provenance, or source limitations in this opening. End with: I'll pause here for you.",
           },
         });
       };
@@ -427,9 +557,24 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     } catch (reason) {
       if (current()) fail(reason instanceof Error ? reason.message : "Unable to start voice");
     }
-  }, [beforeFirstPlay, disconnect, fail, handleEvent, send]);
+  }, [beforeFirstPlay, disconnect, fail, handleEvent, scheduleGuidedContinuation, send]);
 
-  return { status, caption, userCaption, error, entities, isMicMuted, canToggleMic, canReplay, isPaused, isTransportPaused, replayLastSentence, setMicrophoneMuted, toggleMic, togglePlayback, connect, disconnect, pause, resume };
+  return { status, caption, userCaption, error, entities, quiz, isMicMuted, canToggleMic, canReplay, isPaused, isTransportPaused, replayLastSentence, submitQuizAnswer, setMicrophoneMuted, toggleMic, togglePlayback, connect, disconnect, pause, resume };
+}
+
+function quizFromTool(id: string, args: Record<string, unknown>): HistorianQuiz | null {
+  const question = typeof args.question === "string" ? args.question.trim() : "";
+  const explanation = typeof args.explanation === "string" ? args.explanation.trim() : "";
+  const options = Array.isArray(args.options) ? args.options.map((option) => typeof option === "string" ? option.trim() : "") : [];
+  const correctOption = args.correctOption;
+  const questionNumber = args.questionNumber;
+  const totalQuestions = args.totalQuestions;
+  if (!question || !explanation || options.length !== 4 || options.some((option) => !option)
+    || new Set(options.map((option) => option.toLocaleLowerCase())).size !== 4
+    || typeof correctOption !== "number" || !Number.isInteger(correctOption) || correctOption < 0 || correctOption > 3
+    || typeof questionNumber !== "number" || !Number.isInteger(questionNumber) || questionNumber < 1
+    || typeof totalQuestions !== "number" || !Number.isInteger(totalQuestions) || totalQuestions < questionNumber || totalQuestions > 10) return null;
+  return { id, question, options: options as HistorianQuiz["options"], correctOption, explanation, questionNumber, totalQuestions };
 }
 
 function historicalEntityFromTool(args: Record<string, unknown>): HistoricalEntity | null {

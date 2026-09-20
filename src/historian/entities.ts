@@ -36,6 +36,7 @@ const PERIOD_WORDS = /\b(?:age|century|dynasty|empire|era|kingdom|period|republi
 const SITE_WORDS = /\b(?:abbey|acropolis|basilica|castle|cathedral|church|complex|fort|fortress|monument|mosque|museum|palace|plateau|pyramid|sphinx|temple|tomb|tower)\b/iu;
 const PLACE_WORDS = /\b(?:avenue|bay|boulevard|city|country|desert|district|island|lake|mount|mountain|ocean|park|province|river|road|sea|square|state|street|valley)\b/iu;
 const LOCATION_CUE = /\b(?:at|from|in|near|outside|through|to|within)\s+$/iu;
+const PRONOUN_CONTRACTION = /^(?:he|how|i|it|she|that|there|they|we|what|when|where|who|why|you)['’](?:d|ll|m|re|s|t|ve)$/iu;
 
 function inferredKind(label: string, prefix: string): HistoricalEntity["kind"] {
   if (PERIOD_WORDS.test(label)) return "period";
@@ -56,7 +57,8 @@ export function inferCaptionEntities(text: string, existing: HistoricalEntity[] 
   const inferred: HistoricalEntity[] = [];
   const isName = (value: string) => /^\p{Lu}[\p{L}\p{M}'’.-]*$/u.test(value) || /^\p{Lu}{2,}$/u.test(value);
   for (let index = 0; index < tokens.length;) {
-    if (!isName(tokens[index].value) || SENTENCE_WORDS.has(tokens[index].value.toLocaleLowerCase())) { index += 1; continue; }
+    if (!isName(tokens[index].value) || SENTENCE_WORDS.has(tokens[index].value.toLocaleLowerCase())
+      || PRONOUN_CONTRACTION.test(tokens[index].value)) { index += 1; continue; }
     const first = index;
     let last = index;
     while (last + 1 < tokens.length) {
@@ -73,8 +75,14 @@ export function inferCaptionEntities(text: string, existing: HistoricalEntity[] 
     const label = text.slice(tokens[first].start, tokens[last].end);
     const lower = label.toLocaleLowerCase();
     const words = label.split(/\s+/u);
-    if (!known.has(lower) && !(words.length === 1 && SENTENCE_WORDS.has(lower))) {
-      const kind = inferredKind(label, text.slice(Math.max(0, tokens[first].start - 24), tokens[first].start));
+    const prefix = text.slice(0, tokens[first].start);
+    const nearbyPrefix = prefix.slice(-24);
+    const sentenceStart = !prefix.trim() || /[.!?;:]["'’”)]*\s*$/u.test(prefix);
+    const strongSingle = LOCATION_CUE.test(nearbyPrefix) || PERIOD_WORDS.test(label) || SITE_WORDS.test(label)
+      || PLACE_WORDS.test(label) || /^\p{Lu}{2,}$/u.test(label);
+    const plausible = words.length > 1 || !sentenceStart || strongSingle;
+    if (!known.has(lower) && plausible && !PRONOUN_CONTRACTION.test(label)) {
+      const kind = inferredKind(label, nearbyPrefix);
       const slug = lower.normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
       const entity: HistoricalEntity = {
         id: `inferred-${slug}`,
