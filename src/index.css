@@ -235,3 +235,5 @@
 .sample-picker-card.failed .sample-picker-image span { background: #b42318; color: #fff; }
 .sample-picker-image { position: relative; }
 .sample-picker-image i { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; background: #4f7cff; transition: width .6s; }
+.photo-actions .photo-back { margin-left: auto; color: rgba(255,255,255,.72); }
+.photo-actions .photo-back:hover { color: #fff; }
