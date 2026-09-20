@@ -240,8 +240,11 @@ function Upload({ onBack, onGenerate, onExplore, onLibrary }: { onBack: () => vo
       setBusy(null);
     }
   };
-  const addFiles = (files: FileList | File[]) => setAttachments((current) => [...current, ...Array.from(files).map(sourceForFile).filter((source): source is UploadSource => Boolean(source))]);
-  const removeAttachment = (index: number) => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  // The prepared photograph, the guide and the painted image all derive from the attachments: any change to
+  // them starts over, otherwise a swapped photo would send the previous one.
+  const resetDerived = () => { setPrepped(null); setGuide(""); setImagined(null); };
+  const addFiles = (files: FileList | File[]) => { resetDerived(); setAttachments((current) => [...current, ...Array.from(files).map(sourceForFile).filter((source): source is UploadSource => Boolean(source))]); };
+  const removeAttachment = (index: number) => { resetDerived(); setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index)); };
   const beginDrag = (event: React.DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(true); };
   const endDrag = (event: React.DragEvent<HTMLDivElement>) => { event.preventDefault(); if (event.currentTarget === event.target) setDragging(false); };
   const dropFiles = (event: React.DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); };
