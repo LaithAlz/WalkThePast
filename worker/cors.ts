@@ -46,7 +46,7 @@ export function preflight(request: Request, origin: string | null): Response {
     status: 204,
     headers: {
       "access-control-allow-origin": origin,
-      "access-control-allow-methods": "GET, POST, OPTIONS",
+      "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
       "access-control-allow-headers": request.headers.get("access-control-request-headers") ?? "content-type",
       "access-control-max-age": "86400",
       vary: "Origin, Access-Control-Request-Headers",

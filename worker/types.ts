@@ -24,8 +24,8 @@ export type WorldIndexEntry = { id: string; name: string; createdAt?: string };
 export interface Env {
   /** every world folder: <worldId>/splat_*.spz, pano.png, collider.glb, source.*, world.json, and splat_full.ply when asked for */
   WORLDS: R2Bucket;
-  /** job status while a generation runs; the worlds themselves live in R2 */
-  JOBS: KVNamespace;
+  /** job status while a generation runs; strongly consistent, unlike KV (see jobs.ts) */
+  JOB_STORE: DurableObjectNamespace<import("./jobs.ts").JobStore>;
   MARBLE_PIPELINE: Workflow;
   /** the built Vite site */
   ASSETS: Fetcher;

@@ -1,30 +1,32 @@
 /**
- * Job records in KV, the world index in R2.
+ * Job records in a Durable Object (see jobs.ts for why not KV), the world index in R2.
  *
- * The index lives in R2 rather than KV so that GET /worlds/index.json is served from the
- * same bucket as the worlds it lists — one source of truth, and the client contract in
- * src/lib/api.ts is unchanged.
+ * The index lives in R2 so that GET /worlds/index.json is served from the same bucket as
+ * the worlds it lists — one source of truth, and the client contract in src/lib/api.ts is
+ * unchanged.
  */
 import { EXPECTED_S } from "../server/marbleClient.ts";
 import type { Env, JobRecord, WorldIndexEntry } from "./types.ts";
 
-const JOB_PREFIX = "job:";
 const INDEX_KEY = "index.json";
-/** a finished job only needs to outlive the client's next poll */
-const JOB_TTL_S = 24 * 60 * 60;
+
+/** Every job lives in one Durable Object, so a poll always sees the Workflow's last write. */
+const store = (env: Env) => env.JOB_STORE.get(env.JOB_STORE.idFromName("jobs"));
 
 export async function putJob(env: Env, job: JobRecord): Promise<void> {
-  await env.JOBS.put(JOB_PREFIX + job.id, JSON.stringify(job), { expirationTtl: JOB_TTL_S });
+  await store(env).put(job);
 }
 
 export async function getJob(env: Env, id: string): Promise<JobRecord | null> {
-  return await env.JOBS.get<JobRecord>(JOB_PREFIX + id, "json");
+  return await store(env).get(id);
 }
 
 export async function listJobs(env: Env): Promise<JobRecord[]> {
-  const listed = await env.JOBS.list({ prefix: JOB_PREFIX });
-  const jobs = await Promise.all(listed.keys.map((k) => env.JOBS.get<JobRecord>(k.name, "json")));
-  return jobs.filter((j): j is JobRecord => !!j).sort((a, b) => b.startedAt - a.startedAt);
+  return await store(env).list();
+}
+
+export async function deleteJob(env: Env, id: string): Promise<boolean> {
+  return await store(env).delete(id);
 }
 
 export async function readIndex(env: Env): Promise<WorldIndexEntry[]> {
@@ -65,4 +67,23 @@ export function publicJob(job: JobRecord) {
     progress: Math.round(progressOf(job)),
     elapsedS: Math.round((Date.now() - job.startedAt) / 1000),
   };
+}
+
+/**
+ * A Workflow can stop without its own catch running — terminated by an operator, or lost
+ * before the handler recorded a failure. The stored record would then read "generating"
+ * for the rest of its day, which is indistinguishable from a healthy long generation.
+ * So for any job that is not already finished, trust the engine over the record.
+ */
+export async function reconcile(env: Env, job: JobRecord): Promise<JobRecord> {
+  if (job.status === "ready" || job.status === "error") return job;
+  try {
+    const { status } = await (await env.MARBLE_PIPELINE.get(job.id)).status();
+    if (status === "errored" || status === "terminated") {
+      return { ...job, status: "error", stage: "failed", error: job.error ?? `generation ${status}` };
+    }
+  } catch {
+    // the instance is gone entirely; leave the record alone rather than invent a verdict
+  }
+  return job;
 }
