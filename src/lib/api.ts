@@ -108,3 +108,15 @@ export function historicalPrompt(place?: string, year?: string): string {
   const where = [place, year].filter(Boolean).join(", ");
   return `A photorealistic reconstruction of ${where || "this historical photograph"} exactly as photographed: keep the composition, architecture, materials and lighting of the photograph faithful, extend the street and buildings beyond the frame in the same period style, no picture frame, no border, no modern objects.`;
 }
+
+/** Delete a generated world: its folder in R2 and its line in the library index. */
+export async function deleteWorld(worldId: string): Promise<void> {
+  const r = await fetch(api(`/api/worlds/${encodeURIComponent(worldId)}`), { method: "DELETE", headers: await authHeaders() });
+  if (!r.ok) throw new Error((await apiJson(r))?.error ?? `could not delete that world (${r.status})`);
+}
+
+/** Take a finished or failed generation off the library shelf. */
+export async function dismissJob(jobId: string): Promise<void> {
+  const r = await fetch(api(`/api/worlds/jobs/${encodeURIComponent(jobId)}`), { method: "DELETE", headers: await authHeaders() });
+  if (!r.ok) throw new Error((await apiJson(r))?.error ?? `could not dismiss that generation (${r.status})`);
+}
