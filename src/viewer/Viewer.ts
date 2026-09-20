@@ -39,6 +39,8 @@ export type ViewerCallbacks = {
   onNavigation?: (status: NavigationStatus) => void;
   onPauseRequest?: () => void;
   onResumeRequest?: () => void;
+  /** X intentionally released the mouse; suppress the large re-entry card. */
+  onQuietUnlock?: () => void;
   /** The browser took or gave back the cursor. Includes releases nobody asked
    * us for — Escape, a tab switch — so the prompt tracks reality. */
   onLockChange?: (locked: boolean) => void;
@@ -119,6 +121,7 @@ export class Viewer {
     this.controls.onPadButton = (index) => { if (index === 3) this.resetToPhotographer(); };
     this.controls.onPauseRequest = () => this.cb.onPauseRequest?.();
     this.controls.onResumeRequest = () => this.cb.onResumeRequest?.();
+    this.controls.onQuietUnlock = () => this.cb.onQuietUnlock?.();
     this.controls.onLockChange = (locked) => this.cb.onLockChange?.(locked);
 
     this.onKeyDown = (e) => {
@@ -176,6 +179,23 @@ export class Viewer {
   captureSnapshot(): string {
     this.renderer.render(this.scene, this.camera);
     return this.canvas.toDataURL("image/jpeg", 0.9);
+  }
+
+  /** Compact enough for a Realtime data-channel input_image event. */
+  captureVisionSnapshot(): string {
+    this.renderer.render(this.scene, this.camera);
+    const output = document.createElement("canvas");
+    const longestSide = Math.max(this.canvas.width, this.canvas.height, 1);
+    let scale = Math.min(1, 960 / longestSide);
+    let dataUrl = "";
+    do {
+      output.width = Math.max(1, Math.round(this.canvas.width * scale));
+      output.height = Math.max(1, Math.round(this.canvas.height * scale));
+      output.getContext("2d")?.drawImage(this.canvas, 0, 0, output.width, output.height);
+      dataUrl = output.toDataURL("image/jpeg", 0.72);
+      scale *= 0.8;
+    } while (dataUrl.length > 180_000 && output.width > 480 && output.height > 270);
+    return dataUrl;
   }
 
   resize() {

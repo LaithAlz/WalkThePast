@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
       alias,
     },
     // Spark ships a Wasm blob + worker inline; keep it out of the dep optimizer.
-    optimizeDeps: { exclude: ["@sparkjsdev/spark"] },
+    optimizeDeps: { exclude: ["@sparkjsdev/spark", "maplibre-gl"] },
   };
 });
 

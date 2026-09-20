@@ -27,15 +27,31 @@ export type CaptionPart = { text: string; entity?: HistoricalEntity };
 
 const CONNECTORS = new Set(["al", "bin", "da", "de", "del", "der", "di", "du", "la", "le", "of", "the", "van", "von"]);
 const SENTENCE_WORDS = new Set([
-  "a", "after", "although", "an", "and", "as", "at", "before", "built", "but", "during", "for", "from", "here",
-  "how", "if", "imagine", "in", "it", "its", "look", "many", "most", "near", "no", "now", "on", "once", "so", "some", "that",
-  "the", "their", "these", "they", "this", "those", "today", "welcome", "what", "when", "where", "which", "while",
-  "travel", "walking", "who", "why", "with", "would", "yes", "you", "your",
+  "a", "after", "again", "all", "also", "although", "am", "an", "and", "are", "as", "at", "be", "because", "before",
+  "built", "but", "by", "can", "could", "did", "do", "does", "during", "each", "for", "from", "had", "has", "have",
+  "he", "here", "how", "i", "if", "imagine", "in", "is", "it", "its", "like", "look", "many", "may", "might", "more",
+  "most", "near", "no", "not", "now", "of", "on", "once", "or", "our", "she", "should", "so", "some", "than", "that",
+  "the", "their", "them", "then", "there", "these", "they", "this", "those", "through", "to", "today", "travel", "up",
+  "us", "was", "we", "welcome", "were", "what", "when", "where", "which", "while", "who", "why", "will", "with", "would",
+  "yes", "you", "your",
 ]);
 const PERIOD_WORDS = /\b(?:age|century|dynasty|empire|era|kingdom|period|republic)\b/iu;
 const SITE_WORDS = /\b(?:abbey|acropolis|basilica|castle|cathedral|church|complex|fort|fortress|monument|mosque|museum|palace|plateau|pyramid|sphinx|temple|tomb|tower)\b/iu;
 const PLACE_WORDS = /\b(?:avenue|bay|boulevard|city|country|desert|district|island|lake|mount|mountain|ocean|park|province|river|road|sea|square|state|street|valley)\b/iu;
 const LOCATION_CUE = /\b(?:at|from|in|near|outside|through|to|within)\s+$/iu;
+const PRONOUN_CONTRACTION = /^(?:he|how|i|it|she|that|there|they|we|what|when|where|who|why|you)['’](?:d|ll|m|re|s|t|ve)$/iu;
+
+/** Reject tool mistakes and fallback guesses that are discourse, not names. */
+export function isPlausibleEntityName(label: string): boolean {
+  const clean = label.trim().replace(/\s+/gu, " ");
+  if (!clean || clean.length > 96 || /[\r\n]/u.test(label) || PRONOUN_CONTRACTION.test(clean)) return false;
+  const words = clean.match(/[\p{L}\p{N}][\p{L}\p{M}\p{N}'’.-]*/gu) ?? [];
+  if (!words.length || words.length > 8) return false;
+  const lower = words.map((word) => word.toLocaleLowerCase());
+  if (words.length === 1 && (words[0].length < 2 || SENTENCE_WORDS.has(lower[0]) || CONNECTORS.has(lower[0]))) return false;
+  if (SENTENCE_WORDS.has(lower[0]) || SENTENCE_WORDS.has(lower.at(-1)!)) return false;
+  return lower.some((word) => !SENTENCE_WORDS.has(word) && !CONNECTORS.has(word));
+}
 
 function inferredKind(label: string, prefix: string): HistoricalEntity["kind"] {
   if (PERIOD_WORDS.test(label)) return "period";
@@ -55,16 +71,18 @@ export function inferCaptionEntities(text: string, existing: HistoricalEntity[] 
   const known = new Set(existing.flatMap((entity) => [entity.label, ...(entity.aliases ?? [])]).map((name) => name.toLocaleLowerCase()));
   const inferred: HistoricalEntity[] = [];
   const isName = (value: string) => /^\p{Lu}[\p{L}\p{M}'’.-]*$/u.test(value) || /^\p{Lu}{2,}$/u.test(value);
+  const isNameAnchor = (value: string) => isName(value) && !SENTENCE_WORDS.has(value.toLocaleLowerCase())
+    && !PRONOUN_CONTRACTION.test(value);
   for (let index = 0; index < tokens.length;) {
-    if (!isName(tokens[index].value) || SENTENCE_WORDS.has(tokens[index].value.toLocaleLowerCase())) { index += 1; continue; }
+    if (!isNameAnchor(tokens[index].value)) { index += 1; continue; }
     const first = index;
     let last = index;
     while (last + 1 < tokens.length) {
       const directGap = text.slice(tokens[last].end, tokens[last + 1].start);
-      if (/^\s+$/u.test(directGap) && isName(tokens[last + 1].value)) { last += 1; continue; }
+      if (/^\s+$/u.test(directGap) && isNameAnchor(tokens[last + 1].value)) { last += 1; continue; }
       const connectorGap = last + 2 < tokens.length ? text.slice(tokens[last + 1].end, tokens[last + 2].start) : "";
       if (/^\s+$/u.test(directGap) && /^\s+$/u.test(connectorGap)
-        && CONNECTORS.has(tokens[last + 1].value.toLocaleLowerCase()) && last + 2 < tokens.length && isName(tokens[last + 2].value)) {
+        && CONNECTORS.has(tokens[last + 1].value.toLocaleLowerCase()) && last + 2 < tokens.length && isNameAnchor(tokens[last + 2].value)) {
         last += 2;
         continue;
       }
@@ -73,8 +91,14 @@ export function inferCaptionEntities(text: string, existing: HistoricalEntity[] 
     const label = text.slice(tokens[first].start, tokens[last].end);
     const lower = label.toLocaleLowerCase();
     const words = label.split(/\s+/u);
-    if (!known.has(lower) && !(words.length === 1 && SENTENCE_WORDS.has(lower))) {
-      const kind = inferredKind(label, text.slice(Math.max(0, tokens[first].start - 24), tokens[first].start));
+    const prefix = text.slice(0, tokens[first].start);
+    const nearbyPrefix = prefix.slice(-24);
+    const sentenceStart = !prefix.trim() || /[.!?;:]["'’”)]*\s*$/u.test(prefix);
+    const strongSingle = LOCATION_CUE.test(nearbyPrefix) || PERIOD_WORDS.test(label) || SITE_WORDS.test(label)
+      || PLACE_WORDS.test(label) || /^\p{Lu}{2,}$/u.test(label);
+    const plausible = words.length > 1 || !sentenceStart || strongSingle;
+    if (!known.has(lower) && plausible && isPlausibleEntityName(label)) {
+      const kind = inferredKind(label, nearbyPrefix);
       const slug = lower.normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
       const entity: HistoricalEntity = {
         id: `inferred-${slug}`,
@@ -97,7 +121,9 @@ export function enrichCaption(text: string, additions: HistoricalEntity[] = []):
   const explicit = [...additions, ...HISTORICAL_ENTITIES.filter((known) => !additions.some((item) => item.label.toLocaleLowerCase() === known.label.toLocaleLowerCase()))];
   const catalogue = [...explicit, ...inferCaptionEntities(text, explicit)];
   const names = catalogue.flatMap((entity) => [entity.label, ...(entity.aliases ?? [])].map((name) => ({ name, entity })))
+    .filter(({ name }) => isPlausibleEntityName(name))
     .sort((a, b) => b.name.length - a.name.length);
+  if (!names.length) return [{ text }];
   const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(${names.map(({ name }) => escapeRegExp(name)).join("|")})(?![\\p{L}\\p{N}])`, "giu");
   const lookup = new Map(names.map(({ name, entity }) => [name.toLocaleLowerCase(), entity]));
   return text.split(pattern).filter(Boolean).map((part) => ({ text: part, entity: lookup.get(part.toLocaleLowerCase()) }));

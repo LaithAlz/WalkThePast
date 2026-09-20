@@ -29,7 +29,7 @@ from it, so switching modes or walking costs nothing on the CPU.
 
 - **Exploration mode**: source-visible splats stay natural; inferred/unsupported splats desaturate and dim
   by a `shift` uniform that rises as the viewer walks away from the photographer (0 at 0.35 m → 1 at 3 m).
-- **Evidence mode** (`M`): green / amber / purple at 78 % blend, plus the historical camera frustum (`K`)
+- **Evidence mode** (`E`): green / amber / purple at 78 % blend, plus the historical camera frustum (`K`)
   with the photograph on its image plane 1 m in front.
 - **Inspector** (always on in world mode): the crosshair hit point is classified with the same rule and the
   panel explains *why*, with the hit marked on a thumbnail of the photograph.

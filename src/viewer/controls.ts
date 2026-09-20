@@ -11,17 +11,16 @@
  *  - mouse: look. Left/right yaws without limit, up/down pitches to ±89°
  *  - W / S: walk along the camera's horizontal heading; A / D strafe
  *  - Shift run; Q/C height in development fly mode
- *  - M: release the cursor and open the pause menu
+ *  - X: release the captured mouse; P: open or close the pause menu
  *  - touch: one-finger swipe looks, since a touchscreen cannot lock a pointer
  *  - gamepad: left stick walk, right stick look, LT/RT run
  *
  * Yaw/pitch are the source of truth; call syncFromCamera() after setting the
  * camera pose from elsewhere (reset-to-photographer, saved poses).
  *
- * Escape is not ours. The browser spends it leaving pointer lock and leaving
- * fullscreen, and a page cannot preventDefault its way out of either, so it is
- * never bound here — it simply releases the cursor, which pointerlockchange
- * reports like any other release. M is the deliberate way out.
+ * Escape still has its native browser behavior, but X is the reliable in-app
+ * way to release pointer lock without also leaving fullscreen. P is the
+ * deliberate pause-menu control.
  *
  * This replaced two controllers that steered with a visible cursor, one by
  * accumulating deltas with a turn rate in an edge margin and one by mapping
@@ -71,6 +70,9 @@ export class FirstPersonControls {
   onPadButton?: (index: number) => void;
   onPauseRequest?: () => void;
   onResumeRequest?: () => void;
+  /** Fires before X intentionally releases the mouse, allowing the UI to keep
+   * the viewport clear instead of showing its first-use help card. */
+  onQuietUnlock?: () => void;
   /** Fires whenever the browser takes or gives back the cursor, including the
    * releases we did not ask for: Escape, tab switches, window blur. */
   onLockChange?: (locked: boolean) => void;
@@ -148,7 +150,14 @@ export class FirstPersonControls {
     this.on(document, "keydown", (e) => {
       const ev = e as KeyboardEvent;
       if (!this.enabled || isTyping(ev)) return;
-      if (ev.code === "KeyM") {
+      if (ev.code === "KeyX" && this.locked && !this.paused) {
+        ev.preventDefault();
+        this.onQuietUnlock?.();
+        this.releaseLock();
+        this.clearInput();
+        return;
+      }
+      if (ev.code === "KeyP") {
         ev.preventDefault();
         if (this.paused) this.onResumeRequest?.();
         else { this.releaseLock(); this.clearInput(); this.onPauseRequest?.(); }
