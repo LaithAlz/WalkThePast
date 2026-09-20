@@ -422,6 +422,9 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
 
   const handleEvent = useCallback((event: ServerEvent) => {
     const responseId = event.response_id ?? event.response?.id;
+    if (import.meta.env.DEV && event.type !== "response.output_text.delta" && !event.type?.startsWith("input_audio_buffer") && !event.type?.includes("transcription")) {
+      console.debug("[historian]", event.type, responseId ?? "", event.type === "response.done" ? event.response?.status : "", event.type === "response.function_call_arguments.done" ? event.name : "");
+    }
     if (responseId && ignoredResponsesRef.current.has(responseId)) return;
     if (event.type?.startsWith("response.") && event.type !== "response.created" && responseId !== activeResponseRef.current) return;
     switch (event.type) {
