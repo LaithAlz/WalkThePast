@@ -12,7 +12,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "node --test test/*.test.mjs",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run build && rm -rf dist/worlds && wrangler deploy",
     "worker:dev": "wrangler dev",
     "worker:types": "wrangler types"
   },
