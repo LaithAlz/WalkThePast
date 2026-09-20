@@ -44,6 +44,22 @@ export async function generateViews(image: PreppedImage, context?: string, direc
   return body.views as GeneratedView[];
 }
 
+/** A Marble world guide: what to build for the whole scene, especially outside the frame (OpenAI). */
+export async function writeGuide(image: PreppedImage | null, description?: string): Promise<string> {
+  const r = await fetch("/api/views/guide", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image: image ? { mime: image.mime, dataBase64: image.dataBase64 } : undefined, description }) });
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error ?? `guide failed (${r.status})`);
+  return body.guide as string;
+}
+
+/** The photograph for a text-only world, painted from the guide (OpenAI). */
+export async function imagineImage(prompt: string): Promise<{ mime: string; dataBase64: string }> {
+  const r = await fetch("/api/views/image", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }) });
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error ?? `image failed (${r.status})`);
+  return body as { mime: string; dataBase64: string };
+}
+
 export type WorldImage = { name: string; mime: string; dataBase64: string; azimuth?: number };
 
 export async function generateWorld(input: { name: string; text?: string; model: MarbleModel; images: WorldImage[]; mode?: "single" | "azimuth" | "reconstruct" }): Promise<string> {

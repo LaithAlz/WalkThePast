@@ -205,3 +205,5 @@
 .views-strip .view-error { display: flex; align-items: center; justify-content: center; padding: 8px; color: #b04141; font-size: 10px; text-align: center; }
 .views-strip figcaption { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; color: #656d78; font: 9px 'IBM Plex Mono', monospace; letter-spacing: .12em; }
 .views-strip figcaption button { border: 0; background: transparent; color: #3557c7; cursor: pointer; font-size: 13px; }
+.guide { width: 100%; min-height: 110px; resize: vertical; border: 1px solid rgba(16,22,34,.14); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; background: rgba(255,255,255,.7); outline-color: #4f7cff; }
+.imagined { width: 100%; border-radius: 8px; display: block; }
