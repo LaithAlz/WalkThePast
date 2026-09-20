@@ -10,12 +10,13 @@ import { Marble } from "../server/marbleClient.ts";
 import { worldGuide, imagineImage } from "../server/views.ts";
 import { fetchWithRetry } from "../server/retryFetch.ts";
 import { narrate } from "./narration.ts";
-import { getJob, listJobs, publicJob, putJob } from "./store.ts";
+import { getJob, listJobs, publicJob, putJob, reconcile } from "./store.ts";
 import type { Env } from "./types.ts";
 import { base64ToBytes } from "./marbleWorkflow.ts";
 import { allowedOrigin, preflight, withCors } from "./cors.ts";
 
 export { MarbleWorkflow } from "./marbleWorkflow.ts";
+export { JobStore } from "./jobs.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -121,7 +122,8 @@ async function api(request: Request, env: Env, path: string): Promise<Response> 
   }
 
   if (path === "/api/worlds/jobs") {
-    return json((await listJobs(env)).map(publicJob));
+    const jobs = await Promise.all((await listJobs(env)).map((j) => reconcile(env, j)));
+    return json(jobs.map(publicJob));
   }
 
   const jobImage = path.match(/^\/api\/worlds\/jobs\/([\w-]+)\/image$/);
@@ -136,7 +138,7 @@ async function api(request: Request, env: Env, path: string): Promise<Response> 
   const jobOne = path.match(/^\/api\/worlds\/jobs\/([\w-]+)$/);
   if (jobOne) {
     const job = await getJob(env, jobOne[1]);
-    return job ? json(publicJob(job)) : json({ error: "no such job" }, 404);
+    return job ? json(publicJob(await reconcile(env, job))) : json({ error: "no such job" }, 404);
   }
 
   return json({ error: "not found" }, 404);

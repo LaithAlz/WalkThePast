@@ -37,3 +37,6 @@ public/worlds/**/*.splat
 public/worlds/**/*.ksplat
 public/worlds/**/pano.png
 public/worlds/**/collider.glb
+
+# wrangler local state
+.wrangler/
