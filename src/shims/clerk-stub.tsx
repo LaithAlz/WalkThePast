@@ -10,7 +10,9 @@ export function ClerkProvider({ children }: { children: ReactNode; publishableKe
 }
 
 export function useAuth() {
-  return { isSignedIn: false, isLoaded: true, userId: null };
+  // getToken mirrors Clerk's shape: no key means no session, so the API sends no bearer
+  // token and the Worker answers 401 rather than spending anything.
+  return { isSignedIn: false, isLoaded: true, userId: null, getToken: async () => null };
 }
 
 const disabled = { errors: [{ message: "Sign-in is disabled in this build (no Clerk key configured)." }] };

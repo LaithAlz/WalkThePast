@@ -14,6 +14,7 @@ import { deleteJob, getJob, listJobs, publicJob, putJob, reconcile } from "./sto
 import type { Env } from "./types.ts";
 import { base64ToBytes } from "./marbleWorkflow.ts";
 import { allowedOrigin, preflight, withCors, withPublicCors } from "./cors.ts";
+import { requireUser } from "./auth.ts";
 
 export { MarbleWorkflow } from "./marbleWorkflow.ts";
 export { JobStore } from "./jobs.ts";
@@ -57,6 +58,12 @@ async function serveWorld(env: Env, path: string): Promise<Response> {
 }
 
 async function api(request: Request, env: Env, path: string): Promise<Response> {
+  // Everything below this line reaches a paid upstream — Marble, OpenAI — or reports on
+  // one. The Worker's URL is in the public bundle, so each caller must present a Clerk
+  // session. World assets under /worlds/ stay open: the viewer reads them to walk a world.
+  const auth = await requireUser(request, env);
+  if (auth instanceof Response) return auth;
+
   // --- the voice historian -------------------------------------------------
   if (path === "/api/realtime/session") {
     if (request.method !== "POST") return json({ error: "method not allowed" }, 405);

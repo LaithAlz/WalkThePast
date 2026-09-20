@@ -36,6 +36,8 @@ export interface Env {
   OPENAI_REALTIME_MODEL?: string;
   OPENAI_TEXT_MODEL?: string;
   VIEW_PROVIDER?: string;
+  /** Clerk Frontend API origin, e.g. https://<slug>.clerk.accounts.dev; session tokens are verified against its JWKS */
+  CLERK_ISSUER?: string;
   /** comma-separated CORS allowlist; entries may start with "*." for preview subdomains */
   ALLOWED_ORIGINS?: string;
 }

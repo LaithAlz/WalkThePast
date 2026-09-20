@@ -103,11 +103,18 @@ export class MarbleWorkflow extends WorkflowEntrypoint<Env, MarbleEvent> {
           const progress = op.metadata?.progress?.status;
           if (progress) await mark("generating", `Marble: ${progress.toLowerCase().replace(/_/g, " ")}`);
           if (op.error) throw new NonRetryableError(op.error.message ?? "generation failed");
-          return op.done ? { done: true, response: op.response, credits: op.cost?.total_credits } : { done: false };
+          // A step's return value is serialized, and the world is an open-ended object
+          // that Serializable<T> cannot vouch for, so carry it as JSON text. It is
+          // metadata — urls and numbers — so it stays far inside the 1 MiB step limit.
+          return {
+            done: !!op.done,
+            worldJson: op.response ? JSON.stringify(op.response) : null,
+            credits: op.cost?.total_credits ?? null,
+          };
         });
-        if (poll.done) {
-          world = poll.response as unknown as MarbleWorld;
-          credits = poll.credits;
+        if (poll.done && poll.worldJson) {
+          world = JSON.parse(poll.worldJson) as MarbleWorld;
+          credits = poll.credits ?? undefined;
           break;
         }
         await step.sleep(`wait ${i}`, POLL_MS);
