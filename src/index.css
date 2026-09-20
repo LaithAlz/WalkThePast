@@ -237,3 +237,13 @@
 .sample-picker-image i { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; background: #4f7cff; transition: width .6s; }
 .photo-actions .photo-back { margin-left: auto; color: rgba(255,255,255,.72); }
 .photo-actions .photo-back:hover { color: #fff; }
+
+/* The delete control sits over the card rather than inside it: the card is itself a
+   button, and a button cannot contain another one. */
+.world-card-wrap { position: relative; display: flex; }
+.world-card-wrap > .world-card { flex: 1; }
+.world-delete { position: absolute; top: 12px; right: 12px; z-index: 2; height: 26px; min-width: 26px; padding: 0 8px; border: 0; border-radius: 99px; color: #f4f6f8; background: rgba(8,10,13,.72); font: 13px/1 'IBM Plex Mono', monospace; opacity: 0; transition: opacity .15s ease, background .15s ease; }
+.world-card-wrap:hover .world-delete, .world-delete:focus-visible { opacity: 1; }
+.world-delete:hover { background: #b42318; }
+.world-delete.confirming { opacity: 1; background: #b42318; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.world-delete[disabled] { opacity: 1; background: rgba(180,35,24,.6); }
