@@ -73,13 +73,29 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
   const guidedPauseCountRef = useRef(0);
   const quizRef = useRef<HistorianQuiz | null>(null);
   const holdRef = useRef(false); // push-to-talk key held
+  /** instructions of the last requested response, re-sent on the continuation after tool calls */
+  const lastInstructionsRef = useRef<string | undefined>(undefined);
+  /** the last response.create payload, re-sent when the server was still busy with the previous one */
+  const lastResponseRef = useRef<{ type: string; [key: string]: unknown } | null>(null);
+  const createRetriesRef = useRef(0);
+  /** true until the first words of the opening are queued, so they can be forced to start with Welcome */
+  const openingPendingRef = useRef(false);
   const spokeDuringHoldRef = useRef(false); // server VAD heard speech during this hold
   useEffect(() => { contextRef.current = context; }, [context]);
 
   const send = useCallback((event: { type: string; [key: string]: unknown }) => {
     const channel = channelRef.current;
     if (channel?.readyState === "open") {
-      if (event.type === "response.create") responseRequestedRef.current = true;
+      if (event.type === "response.create") {
+        responseRequestedRef.current = true;
+        lastResponseRef.current = event;
+        const response = event.response as { instructions?: string; continuation?: boolean } | undefined;
+        if (response?.continuation) {
+          // Not an API field: it only marks a continuation so the original instructions are kept.
+          const { continuation: _c, ...rest } = response;
+          event = { ...event, response: rest };
+        } else lastInstructionsRef.current = response?.instructions;
+      }
       const payload = JSON.stringify(event);
       // SCTP drops the whole channel on an oversized message, so name the cause
       // rather than letting it surface as a generic event-channel failure.
@@ -113,7 +129,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         response: {
           output_modalities: ["text"],
           instructions: quizDue
-            ? "The visitor has reached the third guided pause. Give a short one-to-three-question knowledge check now, asking only about facts you actually stated in this session or well-established facts of this place; never claim something was discussed unless you said it. Call presentQuizQuestion for the first question before speaking it, use exactly four choices with one correct answer, read all four choices, then say exactly: You can answer now. Wait for the visitor's answer."
+            ? "The visitor has reached the third guided pause. Give a three-question knowledge check now, asking only about facts you actually stated in this session or well-established facts of this place; never claim something was discussed unless you said it. Call presentQuizQuestion for question 1 of 3 before speaking it, with exactly four choices and one correct answer. Read the question aloud, say the choices are on screen, then say exactly: You can answer now. Do not read the four choices aloud. Wait for the visitor's answer."
             : "The visitor has remained silent through the guided pause. Continue the historical tour with the most meaningful next topic; do not repeat the welcome or any introduction already given. Briefly connect it to the previous segment, add new historically grounded context, do not repeat yourself, and end with: I'll pause here for you.",
         },
       });
@@ -339,7 +355,9 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       type: "response.create",
       response: {
         output_modalities: ["text"],
-        instructions: `The visitor selected option ${selectedOption + 1}. That answer is ${selectedOption === current.correctOption ? "correct" : "incorrect"}. Give only brief feedback on this answer and explain: ${current.explanation} Do not call presentQuizQuestion and do not introduce the next question yet.${current.questionNumber === current.totalQuestions ? " Briefly conclude the quiz, then make a natural transition: either move into the most relevant next historical subject, or ask whether the visitor would like to explore the current subject more deeply. Choose whichever best fits the conversation. Do not end with the standard pause sentence." : ""}`,
+        instructions: `The visitor selected option ${selectedOption + 1}, "${current.options[selectedOption]}". That answer is ${selectedOption === current.correctOption ? "correct: say so warmly in a few words" : `incorrect: say so plainly, and name the correct answer, "${current.options[current.correctOption]}"`}. Then explain in one or two sentences: ${current.explanation}${current.questionNumber < current.totalQuestions
+          ? ` Right after that, in this same reply, call presentQuizQuestion for question ${current.questionNumber + 1} of ${current.totalQuestions}, read that question aloud, tell the visitor the choices are on screen, and finish by saying exactly: "You can answer now." Do not read the four choices aloud.`
+          : " That was the last question. Briefly conclude the quiz, then make a natural transition: either move into the most relevant next historical subject, or ask whether the visitor would like to explore the current subject more deeply. Do not end with the standard pause sentence."}`,
       },
     });
   }, [interruptNarration, send]);
@@ -376,7 +394,21 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     }
     const delta = final ? event.text?.slice(part.received.length) ?? "" : event.delta ?? "";
     part.received += delta;
-    const { clips, remainder } = splitNarrationText(part.pending + delta, final);
+    let text = part.pending + delta;
+    if (openingPendingRef.current) {
+      // Hold the first words back until there are enough to know how the opening starts.
+      if (!final && part.received.length < 16) {
+        part.pending = text;
+        textPartsRef.current.set(key, part);
+        return;
+      }
+      openingPendingRef.current = false;
+      if (!/^\s*welcome/i.test(part.received)) {
+        const world = contextRef.current.world;
+        text = `Welcome to ${world.place || world.title}. ${text.trimStart()}`;
+      }
+    }
+    const { clips, remainder } = splitNarrationText(text, final);
     part.pending = remainder;
     part.done = final;
     textPartsRef.current.set(key, part);
@@ -410,6 +442,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         if (!responseId) break;
         clearGuidedPause();
         responseRequestedRef.current = false;
+        createRetriesRef.current = 0;
         if (userSpeakingRef.current || cancelRequestedResponseRef.current) {
           cancelRequestedResponseRef.current = false;
           ignoredResponsesRef.current.add(responseId);
@@ -449,7 +482,10 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         }
         if (toolContinuationRef.current) {
           toolContinuationRef.current = false;
-          send({ type: "response.create", response: { output_modalities: ["text"] } });
+          // The reply that called the tools was asked for something specific (the welcome, the
+          // next quiz question); without repeating that here the model answers the tools instead.
+          const carried = lastInstructionsRef.current;
+          send({ type: "response.create", response: { output_modalities: ["text"], continuation: true, ...(carried ? { instructions: carried + " The tool results are in: now give that spoken reply itself, in full." } : {}) } });
         } else {
           // Network generation completion is independent of local playback completion.
           playerRef.current?.finish();
@@ -464,6 +500,14 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         const message = event.error?.message || "Realtime voice error";
         const code = (event.error as { code?: string } | undefined)?.code ?? "";
         if (code === "response_cancel_not_active" || /no active response/i.test(message)) { console.warn("[historian] ignored:", message); break; }
+        // A reply asked for while the previous one was still being cancelled (a quiz answer
+        // given mid-sentence) is refused, not queued. Ask again shortly instead of ending the tour.
+        if ((code === "conversation_already_has_active_response" || /already has an active response/i.test(message)) && lastResponseRef.current && createRetriesRef.current < 5) {
+          createRetriesRef.current += 1;
+          const again = lastResponseRef.current;
+          setTimeout(() => { if (channelRef.current?.readyState === "open" && !activeResponseRef.current) send(again); }, 400);
+          break;
+        }
         fail(message);
         break;
       }
@@ -515,7 +559,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
                 type: "response.create",
                 response: {
                   output_modalities: ["text"],
-                  instructions: `The spoken feedback for question ${activeQuiz.questionNumber} has finished. Now call presentQuizQuestion for question ${activeQuiz.questionNumber + 1} of ${activeQuiz.totalQuestions}, then read that question and its four choices aloud and finish by saying exactly: "You can answer now." Do not repeat the previous feedback.`,
+                  instructions: `The spoken feedback for question ${activeQuiz.questionNumber} has finished. Now call presentQuizQuestion for question ${activeQuiz.questionNumber + 1} of ${activeQuiz.totalQuestions}, read that question aloud, say the choices are on screen, and finish by saying exactly: "You can answer now." Do not read the four choices aloud and do not repeat the previous feedback.`,
                 },
               });
               return;
@@ -585,6 +629,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       channel.onopen = () => {
         if (!current()) return;
         connectingRef.current = false;
+        openingPendingRef.current = true;
         setStatus("thinking");
         send({
           type: "session.update",
