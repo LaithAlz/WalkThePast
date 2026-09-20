@@ -9,14 +9,14 @@ export type Job = { id: string; name: string; model: MarbleModel; status: JobSta
 export type WorldIndexEntry = { id: string; name: string; createdAt?: string };
 /** Generated worlds on disk, newest first. */
 export async function listWorlds(): Promise<WorldIndexEntry[]> {
-  const r = await fetch(worlds(`/worlds/index.json?t=${Date.now()}`));
+  const r = await fetch(worlds(`/worlds/index.json?t=${Date.now()}`), { cache: "no-store" });
   const list = r.ok ? ((await apiJson(r)) as WorldIndexEntry[]) : [];
   return list.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 }
 
 /** Every generation the server knows about, newest first (they run in the background). */
 export async function listJobs(): Promise<Job[]> {
-  const r = await fetch(api("/api/worlds/jobs"), { headers: await authHeaders() });
+  const r = await fetch(api("/api/worlds/jobs"), { headers: await authHeaders(), cache: "no-store" });
   return r.ok ? ((await apiJson(r)) as Job[]) : [];
 }
 
@@ -98,7 +98,7 @@ export async function generateWorld(input: { name: string; description?: string;
 }
 
 export async function getJob(jobId: string): Promise<Job> {
-  const r = await fetch(api(`/api/worlds/jobs/${jobId}`), { headers: await authHeaders() });
+  const r = await fetch(api(`/api/worlds/jobs/${jobId}`), { headers: await authHeaders(), cache: "no-store" });
   if (!r.ok) throw new Error((await apiJson(r)).error ?? "job lookup failed");
   return (await apiJson(r)) as Job;
 }
