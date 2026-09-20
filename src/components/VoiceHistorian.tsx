@@ -10,11 +10,12 @@ type Props = {
   verdict: Verdict | null;
   hue: "green" | "amber" | "purple";
   onEntity: (entity: HistoricalEntity) => void;
+  onPresentationReady?: () => void | Promise<void>;
   paused?: boolean;
   showMediaControls?: boolean;
 };
 
-export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, paused = false, showMediaControls = false }: Props) {
+export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity, onPresentationReady, paused = false, showMediaControls = false }: Props) {
   const voice = useRealtimeHistorian({
     world: {
       id: world.worldId ?? "unknown",
@@ -27,7 +28,7 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
     evidenceEnabled: evidence,
     evidenceCounts: counts,
     verdict,
-  });
+  }, { beforeFirstPlay: onPresentationReady });
   const { pause, resume, connect, setMicrophoneMuted } = voice;
   const connectRef = useRef(connect);
   useEffect(() => { connectRef.current = connect; }, [connect]);
@@ -42,6 +43,9 @@ export function VoiceHistorian({ world, evidence, counts, verdict, hue, onEntity
           : voice.status === "speaking" ? "Historian speaking"
             : "Reconnect historian";
   const captionParts = enrichCaption(voice.caption, voice.entities);
+  useEffect(() => {
+    if (voice.error) void onPresentationReady?.();
+  }, [voice.error, onPresentationReady]);
   useEffect(() => {
     if (paused) pause("detour");
     else resume("detour");

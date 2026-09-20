@@ -7,6 +7,9 @@ type Props = {
   worldId: string;
   evidence: boolean;
   autoEnter?: boolean;
+  entryReady?: boolean;
+  waitingMessage?: string;
+  onLandingHidden?: () => void;
   onCounts?: (counts: EvidenceCounts) => void;
   onVerdict?: (verdict: Verdict | null) => void;
   onMode?: (mode: Mode) => void;
@@ -16,7 +19,7 @@ type Props = {
   onExit?: () => void;
 };
 
-export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit }: Props) {
+export function WorldCanvas({ worldId, evidence, autoEnter = false, entryReady = true, waitingMessage = "Preparing the experience…", onLandingHidden, onCounts, onVerdict, onMode, onReady, suspended = false, onSnapshot, onExit }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLImageElement>(null);
@@ -28,6 +31,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
   const [mode, setMode] = useState<Mode>("photo");
   const [navigation, setNavigation] = useState<NavigationStatus>({ mode: "loading", message: "Preparing walking…" });
   const [pauseMenu, setPauseMenu] = useState(false);
+  const [entering, setEntering] = useState(false);
   // Correct look speed depends on the user's mouse, so it is theirs to set and keep.
   const [sensitivity, setSensitivity] = useState(readSensitivity);
   const touchKeys = useRef(new Set<string>());
@@ -64,9 +68,9 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
 
   // Callbacks change identity every render; keep them in a ref so the viewer is
   // built once rather than torn down and rebuilt on each parent render.
-  const sinks = useRef({ onCounts, onVerdict, onMode, resume });
+  const sinks = useRef({ onCounts, onVerdict, onMode, onLandingHidden, resume });
   useEffect(() => {
-    sinks.current = { onCounts, onVerdict, onMode, resume };
+    sinks.current = { onCounts, onVerdict, onMode, onLandingHidden, resume };
   });
 
   useEffect(() => {
@@ -82,6 +86,7 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
       onStatus: setStatus,
       onManifest: (m) => {
         setManifest(m);
+        setEntering(false);
         transition.showPhoto();
         viewer.setInteractive(false);
       },
@@ -146,17 +151,20 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
   }, [suspended, onSnapshot, mode]);
 
   const ready = status.kind === "ready";
+  const canEnter = ready && entryReady;
   const enter = async () => {
     const t = transitionRef.current;
-    if (!t || t.mode !== "photo" || status.kind !== "ready") return;
+    if (!t || t.mode !== "photo" || !canEnter) return;
+    setEntering(true);
     viewerRef.current?.resetToPhotographer(false);
     await t.enterWorld();
+    sinks.current.onLandingHidden?.();
   };
 
   useEffect(() => {
-    if (status.kind !== "ready") return;
+    if (!canEnter) return;
     if (autoEnter || !manifest?.source?.image) void enter(); // preview routes skip the photo landing
-  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canEnter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -204,21 +212,21 @@ export function WorldCanvas({ worldId, evidence, autoEnter = false, onCounts, on
         />
         <div ref={handleRef} className="wipe-handle"><span /></div>
         {mode === "photo" && manifest?.source?.image && (
-          <div className="photo-landing">
+          <div className={`photo-landing${entering ? " is-entering" : ""}`} onTransitionEnd={(event) => { if (event.propertyName === "opacity" && entering) sinks.current.onLandingHidden?.(); }}>
             <div className="photo-card">
               <p className="eyebrow">THE PHOTOGRAPH</p>
               <h2>{credit.title ?? manifest.name}</h2>
               {meta && <p className="photo-meta">{meta}</p>}
               {credit.licence && <p className="photo-licence">{credit.licence}</p>}
               <div className="photo-actions">
-                <button className="button" disabled={!ready} onClick={() => void enter()}>
-                  {ready ? "Walk into the photograph" : "Preparing the world"}
+                <button className="button" disabled={!canEnter} onClick={() => void enter()}>
+                  {canEnter ? "Walk into the photograph" : ready ? "Preparing the historian" : "Preparing the world"}
                 </button>
-                {ready && <span className="photo-enter">or press <kbd>Enter</kbd></span>}
+                {canEnter && <span className="photo-enter">or press <kbd>Enter</kbd></span>}
               </div>
               {/* Controls live in the info card now, so the landing only has to
                   explain itself and show that something is still happening. */}
-              {!ready && <p className="photo-progress" role="status"><i aria-hidden="true" /><span>{describe(status)}</span></p>}
+              {!canEnter && <p className="photo-progress" role="status"><i aria-hidden="true" /><span>{ready ? waitingMessage : describe(status)}</span></p>}
             </div>
           </div>
         )}

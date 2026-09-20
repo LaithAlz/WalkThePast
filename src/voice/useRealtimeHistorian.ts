@@ -18,7 +18,8 @@ type ServerEvent = {
 };
 type TextPart = { received: string; pending: string; done: boolean };
 
-export function useRealtimeHistorian(context: HistorianSceneContext) {
+export function useRealtimeHistorian(context: HistorianSceneContext, options: { beforeFirstPlay?: () => void | Promise<void> } = {}) {
+  const beforeFirstPlay = options.beforeFirstPlay;
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [caption, setCaption] = useState("");
   const [userCaption, setUserCaption] = useState("");
@@ -310,6 +311,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
           return response.json();
         },
         onCaption: (text) => { if (current()) setCaption(text); },
+        beforeFirstPlay,
         onState: (state) => {
           if (current() && state !== "idle") setStatus(state === "playing" ? "speaking" : "thinking");
         },
@@ -403,7 +405,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext) {
     } catch (reason) {
       if (current()) fail(reason instanceof Error ? reason.message : "Unable to start voice");
     }
-  }, [disconnect, fail, handleEvent, send]);
+  }, [beforeFirstPlay, disconnect, fail, handleEvent, send]);
 
   return { status, caption, userCaption, error, entities, isMicMuted, canToggleMic, canReplay, isPaused, isTransportPaused, replayLastSentence, setMicrophoneMuted, toggleMic, togglePlayback, connect, disconnect, pause, resume };
 }
