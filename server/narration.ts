@@ -5,7 +5,7 @@ const MAX_BODY_BYTES = 8_192;
 const MAX_TEXT_LENGTH = 1_200;
 const MAX_AUDIO_BYTES = 16 * 1_024 * 1_024;
 
-class NarrationError extends Error {
+export class NarrationError extends Error {
   status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
@@ -53,7 +53,7 @@ async function readAudio(response: Response): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function normalizeWav(audio: Buffer): number {
+export function normalizeWav(audio: Buffer): number {
   if (audio.length < 44 || audio.toString("ascii", 0, 4) !== "RIFF" || audio.toString("ascii", 8, 12) !== "WAVE") {
     throw new NarrationError(502, "Narration returned invalid audio");
   }

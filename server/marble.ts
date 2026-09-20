@@ -15,8 +15,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Plugin } from "vite";
 import { imagineImage, worldGuide } from "./views.ts";
+import { Marble, EXPECTED_S, slug } from "./marbleClient.ts";
 
-const API = "https://api.worldlabs.ai/marble/v1";
 
 type JobStatus = "queued" | "guide" | "painting" | "uploading" | "generating" | "downloading" | "ready" | "error";
 type Job = {
@@ -58,8 +58,6 @@ type GenerateBody = {
 // re-evaluated, but in-flight runJob promises keep running. Keep the table on globalThis so they stay reachable.
 const jobs: Map<string, Job> = ((globalThis as { __wtpJobs?: Map<string, Job> }).__wtpJobs ??= new Map());
 
-/** Typical Marble generation time per model, seconds, for the progress estimate. */
-const EXPECTED_S: Record<string, number> = { "marble-1.0-draft": 75, "marble-1.1": 330, "marble-1.1-plus": 540 };
 function progressOf(job: Job): number {
   const inStage = (Date.now() - job.stageAt) / 1000;
   const ramp = (from: number, to: number, typicalS: number) => from + (to - from) * Math.min(1, inStage / typicalS);
@@ -79,10 +77,6 @@ const publicJob = (job: Job) => {
   return { ...rest, hasImage: !!image, progress: Math.round(progressOf(job)), elapsedS: Math.round((Date.now() - job.startedAt) / 1000) };
 };
 
-function slug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "world";
-}
-
 async function readJson<T>(req: IncomingMessage, limitBytes = 60 * 1024 * 1024): Promise<T> {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -100,47 +94,6 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-class Marble {
-  // Explicit field rather than a constructor parameter property: this branch
-  // runs tsc with erasableSyntaxOnly so Node can strip types and execute .ts
-  // directly for `node --test`.
-  private key: string;
-  constructor(key: string) { this.key = key; }
-  private async call(method: string, url: string, body?: unknown): Promise<Record<string, unknown>> {
-    const r = await fetch(url, {
-      method,
-      headers: { "WLT-Api-Key": this.key, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
-    });
-    const text = await r.text();
-    if (!r.ok) throw new Error(`${method} ${url} -> ${r.status} ${text.slice(0, 300)}`);
-    return JSON.parse(text);
-  }
-  async credits() {
-    return this.call("GET", `${API}/credits`);
-  }
-  async uploadImage(name: string, mime: string, bytes: Buffer): Promise<string> {
-    const ext = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
-    const prep = (await this.call("POST", `${API}/media-assets:prepare_upload`, { file_name: name.slice(0, 64), kind: "image", extension: ext })) as {
-      media_asset: { media_asset_id?: string; id?: string };
-      upload_info: { upload_url: string; upload_method?: string; required_headers?: Record<string, string> };
-    };
-    const info = prep.upload_info;
-    const put = await fetch(info.upload_url, { method: (info.upload_method || "PUT").toUpperCase(), headers: info.required_headers ?? {}, body: bytes, signal: AbortSignal.timeout(180_000) });
-    if (!put.ok) throw new Error(`upload PUT failed ${put.status}`);
-    return prep.media_asset.media_asset_id ?? prep.media_asset.id!;
-  }
-  async generate(body: unknown) {
-    return this.call("POST", `${API}/worlds:generate`, body);
-  }
-  async operation(id: string) {
-    return this.call("GET", `${API}/operations/${id}`);
-  }
-  async exportPly(worldId: string) {
-    return this.call("POST", `${API}/worlds/${worldId}:export`, { asset_type: "splats", format: "ply", resolution: "full_res" });
-  }
-}
 
 async function download(url: string, dest: string) {
   const r = await fetch(url, { signal: AbortSignal.timeout(600_000) });
