@@ -58,13 +58,6 @@ const images = {
   omnibus: "/assets/boulevard-madeleine.jpg",
 };
 
-const worlds = [
-  { title: "Rue Mouffetard", detail: "PARIS · 1898 · 41% SOURCE-VISIBLE", image: images.mouffetard },
-  { title: "Mulberry Street", detail: "NEW YORK · 1906 · 38% SOURCE-VISIBLE", image: images.mulberry },
-  { title: "Nihonbashi Bridge", detail: "TOKYO · 1911 · 3 MIN LEFT", image: images.montmartre, building: true },
-  { title: "Kongens Nytorv", detail: "COPENHAGEN · 1902 · 52% SOURCE-VISIBLE", image: images.boulevard },
-  { title: "Corso Buenos Aires", detail: "MILAN · 1913 · 29% SOURCE-VISIBLE", image: images.omnibus },
-];
 
 // Emptied for a clean slate: worlds come from public/worlds/index.json as they
 // are generated. Nothing is hardcoded, so the picker is blank until one lands.
@@ -151,7 +144,7 @@ export default function App() {
 
   if (screen === "upload") return <Upload onBack={() => setScreen("landing")} onGenerate={startGeneration} onExplore={explore} onLibrary={() => setScreen("library")} />;
   if (screen === "samples") return <SamplePicker onBack={() => setScreen("landing")} onChoose={chooseSample} />;
-  if (screen === "library") return <Library onNew={() => setScreen("upload")} onExplore={explore} onOpen={openGenerated} />;
+  if (screen === "library") return <Library onNew={() => setScreen("upload")} onOpen={openGenerated} />;
   if (screen === "explore" && activeSample) return <Explore world={activeSample} evidence={evidence} speaking={speaking} autoEnter={activeSample.voicePreview} voice={!!activeSample.worldId} onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => setScreen(exploreReturn)} />;
   return <Landing signedIn={!!isSignedIn} onUpload={() => setScreen("upload")} onLibrary={() => setScreen("library")} onExplore={() => setScreen("samples")} />;
 }
@@ -265,17 +258,16 @@ function SamplePicker({ onBack, onChoose }: { onBack: () => void; onChoose: (sam
 
 type LibraryWorld = { id: string; title: string; detail: string; image: string; building?: boolean; failed?: boolean; pct?: number; open?: () => void; /** absent for the sample cards, which are part of the app rather than anyone's library */ remove?: () => Promise<void> };
 
-function Library({ onNew, onExplore, onOpen }: { onNew: () => void; onExplore: () => void; onOpen: (worldId: string, name: string) => void }) {
+function Library({ onNew, onOpen }: { onNew: () => void; onOpen: (worldId: string, name: string) => void }) {
   const [generated, setGenerated] = useState<{ id: string; name: string }[]>([]);
   const load = () => listWorlds().then((list) => setGenerated(list.filter((w) => !w.id.startsWith("marble-sample")))).catch(() => undefined);
   useEffect(() => { void load(); }, []);
   const jobs = useJobs(load);
   const building: LibraryWorld[] = jobs.filter((j) => j.status !== "ready").map((j) => ({ id: `job-${j.id}`, title: j.name, detail: j.status === "error" ? (j.error ?? "failed").slice(0, 60) : `${j.stage.toUpperCase()} · ${Math.floor(j.elapsedS / 60)}:${String(j.elapsedS % 60).padStart(2, "0")}`, image: j.hasImage ? api(`/api/worlds/jobs/${j.id}/image`) : images.mouffetard, building: j.status !== "error", failed: j.status === "error", pct: j.progress, remove: j.status === "error" ? () => dismissJob(j.id) : undefined }));
   const ready: LibraryWorld[] = generated.map((w) => ({ id: w.id, title: w.name, detail: "GENERATED WORLD · WALKABLE", image: worldAsset(`/worlds/${w.id}/source.jpg`), open: () => onOpen(w.id, w.name), remove: () => deleteWorld(w.id) }));
-  const demo: LibraryWorld[] = worlds.map((w) => ({ id: `demo-${w.title}`, title: w.title, detail: w.detail, image: w.image, open: onExplore }));
-  const all = [...building, ...ready, ...demo];
+  const all = [...building, ...ready];
   const stillBuilding = building.filter((w) => w.building).length;
-  return <main className="page library-page"><Header onUpload={onNew} onLibrary={() => undefined} /><section className="library-intro"><div><h1>Your worlds</h1><p>{ready.length + demo.length} reconstructions{stillBuilding ? ` · ${stillBuilding} still building` : ""}</p></div><div className="actions"><button className="select">Recent</button><button className="button compact" onClick={onNew}>New world</button></div></section><section className="world-grid">{all.map((world) => <WorldCard key={world.id} world={world} onClick={world.open ?? (() => undefined)} onRemoved={load} />)}<button className="new-card" onClick={onNew}><span>+</span>Create a world</button></section></main>;
+  return <main className="page library-page"><Header onUpload={onNew} onLibrary={() => undefined} /><section className="library-intro"><div><h1>Your worlds</h1><p>{ready.length} {ready.length === 1 ? "reconstruction" : "reconstructions"}{stillBuilding ? ` · ${stillBuilding} still building` : ""}</p></div><div className="actions"><button className="select">Recent</button><button className="button compact" onClick={onNew}>New world</button></div></section><section className="world-grid">{all.map((world) => <WorldCard key={world.id} world={world} onClick={world.open ?? (() => undefined)} onRemoved={load} />)}<button className="new-card" onClick={onNew}><span>+</span>Create a world</button></section></main>;
 }
 
 function WorldCard({ world, onClick, onRemoved }: { world: LibraryWorld; onClick: () => void; onRemoved: () => void }) {
