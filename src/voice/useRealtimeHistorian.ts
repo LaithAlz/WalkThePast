@@ -80,6 +80,8 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
   const createRetriesRef = useRef(0);
   /** true until the first words of the opening are queued, so they can be forced to start with Welcome */
   const openingPendingRef = useRef(false);
+  /** a quiz card held back until the words spoken before it have been heard */
+  const pendingQuizRef = useRef<HistorianQuiz | null>(null);
   const spokeDuringHoldRef = useRef(false); // server VAD heard speech during this hold
   useEffect(() => { contextRef.current = context; }, [context]);
 
@@ -129,7 +131,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
         response: {
           output_modalities: ["text"],
           instructions: quizDue
-            ? "The visitor has reached the third guided pause. Give a three-question knowledge check now, asking only about facts you actually stated in this session or well-established facts of this place; never claim something was discussed unless you said it. First speak a lead-in of two or three sentences: bridge from what you were just describing, say you would like to see what the visitor has taken in, and set up the subject of the first question. Then call presentQuizQuestion for question 1 of 3, with exactly four choices and one correct answer. Read the question aloud, say the choices are on screen, then say exactly: You can answer now. Do not read the four choices aloud. Wait for the visitor's answer."
+            ? "The visitor has reached the third guided pause. Give a three-question knowledge check now, asking only about facts you actually stated in this session or well-established facts of this place; never claim something was discussed unless you said it. First speak a lead-in of two or three sentences: bridge from what you were just describing, say you would like to see what the visitor has taken in, and set up the subject of the first question. Then call presentQuizQuestion for question 1 of 3, with exactly four choices and one correct answer. Do not read the question or its choices aloud: after the call, say only that the question is on screen, then say exactly: You can answer now. Wait for the visitor's answer."
             : "The visitor has remained silent through the guided pause. Continue the historical tour with the most meaningful next topic; do not repeat the welcome or any introduction already given. Briefly connect it to the previous segment, add new historically grounded context, do not repeat yourself, and end with: I'll pause here for you.",
         },
       });
@@ -292,11 +294,15 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       if (nextQuiz && shown && shown.selectedOption === undefined && shown.questionNumber === nextQuiz.questionNumber) {
         // Asked for the same question twice: keep the card that is up and say so, otherwise
         // a model that repeats the call after each tool result never gets to speak.
-        output = { status: "already_displayed", questionNumber: shown.questionNumber, totalQuestions: shown.totalQuestions, instruction: "Do not call presentQuizQuestion again. Read the displayed question aloud now, say the choices are on screen, and finish with: You can answer now." };
+        output = { status: "already_displayed", questionNumber: shown.questionNumber, totalQuestions: shown.totalQuestions, instruction: "Do not call presentQuizQuestion again. Say only that the question is on screen, then say exactly: You can answer now." };
       } else if (nextQuiz) {
         clearGuidedPause();
         quizRef.current = nextQuiz;
-        setQuiz(nextQuiz);
+        // The call arrives the instant it is written, well before the lead-in has been
+        // spoken. The card waits for the player to fall silent so the words come first.
+        const state = playerRef.current?.state;
+        if (state === "playing" || state === "buffering") pendingQuizRef.current = nextQuiz;
+        else setQuiz(nextQuiz);
         output = { status: "question_displayed", questionNumber: nextQuiz.questionNumber, totalQuestions: nextQuiz.totalQuestions };
       } else output = { error: "invalid_quiz_question" };
     } else if (call.name === "recordQuizAnswer") {
@@ -350,8 +356,13 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
     responseRequestedRef.current = true;
     const answered = { ...current, selectedOption };
     quizRef.current = answered;
+    pendingQuizRef.current = null;
     setQuiz(answered);
-    setStatus("thinking");
+    // The verdict and the explanation were written with the question, so they are spoken
+    // now, from here, instead of after another round trip to the model.
+    const right = selectedOption === current.correctOption;
+    playerRef.current?.enqueue(right ? `Correct. ${current.explanation}` : `Not quite. The answer is ${current.options[current.correctOption]}. ${current.explanation}`);
+    setStatus("speaking");
     send({
       type: "conversation.item.create",
       item: {
@@ -363,9 +374,9 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
       type: "response.create",
       response: {
         output_modalities: ["text"],
-        instructions: `The visitor selected option ${selectedOption + 1}, "${current.options[selectedOption]}". That answer is ${selectedOption === current.correctOption ? "correct: say so warmly" : `incorrect: say so plainly, and name the correct answer, "${current.options[current.correctOption]}"`}. Then explain in two or three sentences, with the history behind it: ${current.explanation}${current.questionNumber < current.totalQuestions
-          ? ` Right after that, in this same reply, lead into the next question with a sentence, call presentQuizQuestion for question ${current.questionNumber + 1} of ${current.totalQuestions}, read that question aloud, tell the visitor the choices are on screen, and finish by saying exactly: "You can answer now." Do not read the four choices aloud.`
-          : " That was the last question. Briefly conclude the quiz, then make a natural transition: either move into the most relevant next historical subject, or ask whether the visitor would like to explore the current subject more deeply. Do not end with the standard pause sentence."}`,
+        instructions: `The visitor selected option ${selectedOption + 1}, "${current.options[selectedOption]}", which is ${right ? "correct" : "incorrect"}. The verdict and this explanation have already been spoken to the visitor: "${current.explanation}" Do not repeat either.${current.questionNumber < current.totalQuestions
+          ? ` Add one or two sentences of historical colour that build on that explanation, then lead into the next question with a sentence and call presentQuizQuestion for question ${current.questionNumber + 1} of ${current.totalQuestions}. Do not read the question or its choices aloud: after the call, say only that the next question is on screen, then say exactly: "You can answer now."`
+          : " That was the last question. Add one or two sentences that build on the explanation, briefly conclude the quiz, then make a natural transition: either move into the most relevant next historical subject, or ask whether the visitor would like to explore the current subject more deeply. Do not end with the standard pause sentence."}`,
       },
     });
   }, [interruptNarration, send]);
@@ -553,10 +564,23 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
           if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "Could not prepare synchronized speech.");
           return response.json();
         },
-        onCaption: (text) => { if (current()) setCaption(text); },
+        onCaption: (text) => {
+          if (!current()) return;
+          setCaption(text);
+          // The sentence that points at the card is the moment the card should be there.
+          if (pendingQuizRef.current && /on screen|answer now/i.test(text) && quizRef.current?.id === pendingQuizRef.current.id) {
+            setQuiz(pendingQuizRef.current);
+            pendingQuizRef.current = null;
+          }
+        },
         beforeFirstPlay,
         onState: (state) => {
-          if (current() && state !== "idle") setStatus(state === "playing" ? "speaking" : "thinking");
+          if (!current()) return;
+          if (state !== "idle") setStatus(state === "playing" ? "speaking" : "thinking");
+          else if (pendingQuizRef.current && quizRef.current?.id === pendingQuizRef.current.id) {
+            setQuiz(pendingQuizRef.current);
+            pendingQuizRef.current = null;
+          }
         },
         onReplayAvailable: (available) => { if (current()) setCanReplay(available); },
         onComplete: () => {
@@ -574,7 +598,7 @@ export function useRealtimeHistorian(context: HistorianSceneContext, options: { 
                 type: "response.create",
                 response: {
                   output_modalities: ["text"],
-                  instructions: `The spoken feedback for question ${activeQuiz.questionNumber} has finished. Now call presentQuizQuestion for question ${activeQuiz.questionNumber + 1} of ${activeQuiz.totalQuestions}, read that question aloud, say the choices are on screen, and finish by saying exactly: "You can answer now." Do not read the four choices aloud and do not repeat the previous feedback.`,
+                  instructions: `The spoken feedback for question ${activeQuiz.questionNumber} has finished. Lead into the next question with a sentence and call presentQuizQuestion for question ${activeQuiz.questionNumber + 1} of ${activeQuiz.totalQuestions}. Do not read the question or its choices aloud: after the call, say only that it is on screen, then say exactly: "You can answer now." Do not repeat the previous feedback.`,
                 },
               });
               return;
