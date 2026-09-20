@@ -44,7 +44,7 @@ export async function narrate(request: Request, apiKey: string | undefined): Pro
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
-        model: "gpt-4o-mini-tts", voice: "marin", input: text, response_format: "wav",
+        model: "gpt-4o-mini-tts", voice: "onyx", input: text, response_format: "wav",
         instructions: "Read the supplied text verbatim in the measured, confident, engaging voice of an expert museum historian. Use natural narrative cadence and brief pauses between ideas. Do not add or omit words.",
       }),
     });
