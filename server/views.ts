@@ -36,7 +36,7 @@ function prompt(direction: Direction, context?: string): string {
 const GUIDE_STYLE = `The scene is a highly realistic portrayal of an abandoned, sand-filled room, exuding a sense of mystery and desolation. The overall tone is one of stark neglect and decay, amplified by the dusty environment and worn machinery. The room is enclosed by rough-hewn brick walls, a portion of which has crumbled away, revealing a more uneven, earthen texture beneath. The ceiling, also constructed from similar bricks, suggests a subterranean or deeply embedded structure. A series of small, rectangular openings high on one wall allows shafts of bright, golden light to penetrate the gloom. The floor is entirely covered in fine sand, forming dunes that partially engulf discarded machinery. On the right side of the room, a tall server rack stands amidst the sand. To the left, several industrial machines lie partially buried. A lone wooden chair stands in the center of the room, facing the wall with the light-emitting openings. The brick walls extend around the entire perimeter, and the sand dunes undulate consistently across the floor, suggesting a uniform environment outside the visible area.`;
 
 /** A Marble world guide from a photograph and/or a brief description (OpenAI, vision when a photograph is given). */
-async function worldGuide(key: string, image: { mime: string; dataBase64: string } | undefined, description: string | undefined): Promise<string> {
+export async function worldGuide(key: string, image: { mime: string; dataBase64: string } | undefined, description: string | undefined): Promise<string> {
   const model = process.env.OPENAI_TEXT_MODEL || "gpt-5.4-mini";
   const task = image
     ? `Write the world guide for this photograph${description?.trim() ? `. The user says: "${description.trim()}"` : ""}. Describe what the photograph shows and then, consistently with it, what lies outside the frame: behind the camera, to the left, to the right, above and beyond what is visible, so a 3D model can build the whole surroundings.`
@@ -62,7 +62,7 @@ async function worldGuide(key: string, image: { mime: string; dataBase64: string
 }
 
 /** Paint the photograph for a text-only world: the guide is the prompt (OpenAI gpt-image-1). */
-async function imagineImage(key: string, prompt: string): Promise<{ mime: string; dataBase64: string }> {
+export async function imagineImage(key: string, prompt: string): Promise<{ mime: string; dataBase64: string }> {
   const r = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },

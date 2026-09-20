@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       // World generation from the user's own photo or text (Laith's bridge).
-      marbleApi({ apiKey: env.WORLDLAB_API_KEY || env.WORLDLABS_API_KEY, worldsDir: fileURLToPath(new URL("./public/worlds", import.meta.url)) }),
+      marbleApi({ apiKey: env.WORLDLAB_API_KEY || env.WORLDLABS_API_KEY, openaiKey: env.OPENAI_API_KEY, worldsDir: fileURLToPath(new URL("./public/worlds", import.meta.url)) }),
       viewsApi({ geminiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY, openaiKey: env.OPENAI_API_KEY, prefer: env.VIEW_PROVIDER }),
       // The voice historian's realtime session minting.
       realtimeSessionEndpoint(openAIKey, env.OPENAI_REALTIME_MODEL),

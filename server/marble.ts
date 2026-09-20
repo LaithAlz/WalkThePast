@@ -3,19 +3,22 @@
  * Keeps WORLDLAB_API_KEY on the server side and turns an uploaded photograph into a
  * world folder under public/worlds/<id>/ that the viewer can load.
  *
- *   POST /api/worlds/generate   { name, text?, model?, images:[{name, mime, dataBase64}] }
- *                               -> { jobId }
- *   GET  /api/worlds/jobs/:id   -> { status, stage, elapsedS, worldId?, error?, credits? }
+ *   POST /api/worlds/generate   { name?, description?, text?, model?, images?:[{name, mime, dataBase64}] }
+ *                               -> { jobId }      (no text: the world guide is written here; no images: one is painted)
+ *   GET  /api/worlds/jobs       -> [{ id, name, status, stage, progress, elapsedS, worldId?, error?, guide? }]  newest first
+ *   GET  /api/worlds/jobs/:id   -> the same for one job
+ *   GET  /api/worlds/jobs/:id/image -> the photograph (real or painted) while the job runs
  *   GET  /api/credits           -> { remaining_credits }
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Plugin } from "vite";
+import { imagineImage, worldGuide } from "./views.ts";
 
 const API = "https://api.worldlabs.ai/marble/v1";
 
-type JobStatus = "queued" | "uploading" | "generating" | "downloading" | "ready" | "error";
+type JobStatus = "queued" | "guide" | "painting" | "uploading" | "generating" | "downloading" | "ready" | "error";
 type Job = {
   id: string;
   name: string;
@@ -23,6 +26,12 @@ type Job = {
   status: JobStatus;
   stage: string;
   startedAt: number;
+  /** when the current status began: progress within a stage is estimated from this */
+  stageAt: number;
+  /** the world guide sent to Marble (written here when the client did not send one) */
+  guide?: string;
+  /** the photograph (real or painted), kept for the library thumbnail while building; not in the jobs list */
+  image?: { mime: string; dataBase64: string };
   worldId?: string;
   marbleWorldId?: string;
   operationId?: string;
@@ -32,9 +41,12 @@ type Job = {
 
 type GenerateBody = {
   name?: string;
+  /** the world guide; written from the photograph and/or description when absent */
   text?: string;
+  /** the user's brief note about the place */
+  description?: string;
   model?: string;
-  /** images[0] is always the real photograph (the provenance source). Others may carry an azimuth. */
+  /** images[0] is always the real photograph (the provenance source). Others may carry an azimuth. Empty: painted from the guide. */
   images: { name: string; mime: string; dataBase64: string; azimuth?: number }[];
   /** azimuth: images placed around the photographer (max 4); reconstruct: overlapping views of one scene (max 8) */
   mode?: "single" | "azimuth" | "reconstruct";
@@ -42,7 +54,30 @@ type GenerateBody = {
   ply?: boolean;
 };
 
-const jobs = new Map<string, Job>();
+// Vite restarts the dev server (any .env or config edit) inside the same Node process: the plugin module is
+// re-evaluated, but in-flight runJob promises keep running. Keep the table on globalThis so they stay reachable.
+const jobs: Map<string, Job> = ((globalThis as { __wtpJobs?: Map<string, Job> }).__wtpJobs ??= new Map());
+
+/** Typical Marble generation time per model, seconds, for the progress estimate. */
+const EXPECTED_S: Record<string, number> = { "marble-1.0-draft": 75, "marble-1.1": 330, "marble-1.1-plus": 540 };
+function progressOf(job: Job): number {
+  const inStage = (Date.now() - job.stageAt) / 1000;
+  const ramp = (from: number, to: number, typicalS: number) => from + (to - from) * Math.min(1, inStage / typicalS);
+  switch (job.status) {
+    case "queued": return 2;
+    case "guide": return ramp(3, 10, 15);
+    case "painting": return ramp(10, 25, 60);
+    case "uploading": return 27;
+    case "generating": return Math.min(95, ramp(30, 96, EXPECTED_S[job.model] ?? 330));
+    case "downloading": return 97;
+    case "ready": return 100;
+    case "error": return 100;
+  }
+}
+const publicJob = (job: Job) => {
+  const { image, ...rest } = job;
+  return { ...rest, hasImage: !!image, progress: Math.round(progressOf(job)), elapsedS: Math.round((Date.now() - job.startedAt) / 1000) };
+};
 
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "world";
@@ -112,18 +147,36 @@ async function download(url: string, dest: string) {
   await fs.writeFile(dest, Buffer.from(await r.arrayBuffer()));
 }
 
-async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: string) {
+async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: string, openaiKey?: string) {
   const t = (stage: string, status: JobStatus = job.status) => {
     job.stage = stage;
+    if (status !== job.status) job.stageAt = Date.now();
     job.status = status;
   };
   try {
+    // The world guide: what to build for the whole scene. Written here unless the client sent one.
+    let guide = body.text?.trim() || undefined;
+    if (!guide && (body.images[0] || body.description?.trim())) {
+      if (!openaiKey) throw new Error("OPENAI_API_KEY is not set in .env: the world guide needs it");
+      t("writing the world guide", "guide");
+      guide = await worldGuide(openaiKey, body.images[0] ? { mime: body.images[0].mime, dataBase64: body.images[0].dataBase64 } : undefined, body.description);
+    }
+    job.guide = guide;
+    // No photograph: paint one from the guide.
+    if (!body.images.length) {
+      if (!guide) throw new Error("a photograph or a description is required");
+      if (!openaiKey) throw new Error("OPENAI_API_KEY is not set in .env: painting the photograph needs it");
+      t("painting the photograph", "painting");
+      const im = await imagineImage(openaiKey, guide);
+      body.images = [{ name: "imagined.png", mime: im.mime, dataBase64: im.dataBase64 }];
+    }
+    job.image = { mime: body.images[0].mime, dataBase64: body.images[0].dataBase64 };
     t("uploading photograph", "uploading");
     const assetIds: string[] = [];
     for (const im of body.images) {
       assetIds.push(await marble.uploadImage(im.name, im.mime, Buffer.from(im.dataBase64, "base64")));
     }
-    const text = body.text?.trim() || undefined;
+    const text = guide;
     const guidance = text ? { text_prompt: text, disable_recaption: true } : {};
     const mode = body.mode ?? (assetIds.length === 1 ? "single" : "reconstruct");
     const prompt =
@@ -217,7 +270,7 @@ async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: s
       pano: files.pano ? { url: "./pano.png", yawDeg: 90 } : null,
       bounds: { radiusM: 3.5 },
       credit: { title: job.name, photographer: "uploaded photograph", licence: "user upload" },
-      marble: { world_id: job.marbleWorldId, model: world.model ?? job.model, world_marble_url: world.world_marble_url, files, caption: world.assets.caption, prompt: text ?? null, mode, inputImages: body.images.length, azimuths: body.images.map((i) => i.azimuth ?? 0) },
+      marble: { world_id: job.marbleWorldId, model: world.model ?? job.model, world_marble_url: world.world_marble_url, files, caption: world.assets.caption, prompt: text ?? null, description: body.description ?? null, painted: srcName === "source.png" && body.images[0].name === "imagined.png", mode, inputImages: body.images.length, azimuths: body.images.map((i) => i.azimuth ?? 0) },
       notes: "Generated through the in-app Marble bridge (server/marble.ts). Align the photographer (R, nudge, L) to make provenance exact.",
     };
     await fs.writeFile(path.join(dir, "world.json"), JSON.stringify(manifest, null, 2));
@@ -232,6 +285,7 @@ async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: s
     index = [{ id, name: job.name }, ...index.filter((w) => w.id !== id)];
     await fs.writeFile(indexPath, JSON.stringify(index, null, 2));
     job.worldId = id;
+    job.image = undefined;
     t("ready", "ready");
   } catch (e) {
     job.error = e instanceof Error ? e.message : String(e);
@@ -240,7 +294,7 @@ async function runJob(job: Job, body: GenerateBody, marble: Marble, worldsDir: s
   }
 }
 
-export function marbleApi(opts: { apiKey?: string; worldsDir: string }): Plugin {
+export function marbleApi(opts: { apiKey?: string; openaiKey?: string; worldsDir: string }): Plugin {
   const marble = opts.apiKey ? new Marble(opts.apiKey) : null;
   const handler = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     const url = req.url ?? "";
@@ -253,20 +307,31 @@ export function marbleApi(opts: { apiKey?: string; worldsDir: string }): Plugin 
       if (req.method === "GET" && url === "/api/credits") return send(res, 200, await marble.credits());
       if (req.method === "POST" && url === "/api/worlds/generate") {
         const body = await readJson<GenerateBody>(req);
-        if (!body.images?.length) return send(res, 400, { error: "at least one image is required" });
+        body.images ??= [];
+        if (!body.images.length && !body.description?.trim() && !body.text?.trim()) return send(res, 400, { error: "a photograph or a description is required" });
         const id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-        const job: Job = { id, name: body.name?.trim() || body.images[0].name.replace(/\.[^.]+$/, ""), model: body.model || "marble-1.1", status: "queued", stage: "queued", startedAt: Date.now() };
+        const name = body.name?.trim() || body.description?.trim().split(/[.\n]/)[0].slice(0, 48) || body.images[0]?.name.replace(/\.[^.]+$/, "") || "world";
+        const job: Job = { id, name, model: body.model || "marble-1.1", status: "queued", stage: "queued", startedAt: Date.now(), stageAt: Date.now() };
         jobs.set(id, job);
-        void runJob(job, body, marble, opts.worldsDir);
+        void runJob(job, body, marble, opts.worldsDir, opts.openaiKey);
         return send(res, 202, { jobId: id });
+      }
+      const thumb = url.match(/^\/api\/worlds\/jobs\/([a-z0-9]+)\/image$/);
+      if (req.method === "GET" && thumb) {
+        const job = jobs.get(thumb[1]);
+        if (!job?.image) return send(res, 404, { error: "no image yet" });
+        res.statusCode = 200;
+        res.setHeader("content-type", job.image.mime);
+        res.setHeader("cache-control", "private, max-age=3600");
+        return res.end(Buffer.from(job.image.dataBase64, "base64"));
       }
       const m = url.match(/^\/api\/worlds\/jobs\/([a-z0-9]+)$/);
       if (req.method === "GET" && m) {
         const job = jobs.get(m[1]);
         if (!job) return send(res, 404, { error: "unknown job" });
-        return send(res, 200, { ...job, elapsedS: Math.round((Date.now() - job.startedAt) / 1000) });
+        return send(res, 200, publicJob(job));
       }
-      if (req.method === "GET" && url === "/api/worlds/jobs") return send(res, 200, [...jobs.values()]);
+      if (req.method === "GET" && url === "/api/worlds/jobs") return send(res, 200, [...jobs.values()].map(publicJob).sort((a, b) => b.startedAt - a.startedAt));
       return next(); // other /api/* plugins (views) get their turn
     } catch (e) {
       return send(res, 500, { error: e instanceof Error ? e.message : String(e) });

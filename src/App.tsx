@@ -6,10 +6,10 @@ import { VoiceHistorian } from "./components/VoiceHistorian";
 import { KnowledgePortal } from "./components/KnowledgePortal";
 import { enrichCaption, type HistoricalEntity } from "./historian/entities";
 import type { EvidenceCounts, Verdict } from "./viewer/Viewer";
-import { generateWorld, getCredits, getJob, imagineImage, MODEL_CREDITS, writeGuide, type Job, type MarbleModel, type WorldImage } from "./lib/api";
+import { generateWorld, getCredits, imagineImage, listJobs, MODEL_CREDITS, writeGuide, type Job, type MarbleModel, type WorldImage } from "./lib/api";
 import { prepPhoto, type PreppedImage } from "./lib/prep";
 
-type Screen = "landing" | "auth" | "upload" | "library" | "making" | "samples" | "explore";
+type Screen = "landing" | "auth" | "upload" | "library" | "samples" | "explore";
 type AuthMode = "login" | "signup";
 type SourceKind = "image" | "video" | "text";
 type UploadSource = { name: string; kind: SourceKind; file?: File };
@@ -54,7 +54,6 @@ export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [evidence, setEvidence] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [generation, setGeneration] = useState<Generation | null>(null);
   const [activeSample, setActiveSample] = useState<SampleWorld>(sampleWorlds[0]);
   const [exploreReturn, setExploreReturn] = useState<"library" | "samples">("samples");
   const { isSignedIn } = useAuth();
@@ -77,7 +76,8 @@ export default function App() {
 
   const explore = () => { setActiveSample(sampleWorlds[0]); setExploreReturn("library"); setEvidence(false); setScreen("explore"); };
   const chooseSample = (sample: SampleWorld) => { setActiveSample(sample); setExploreReturn("samples"); setEvidence(false); setScreen("explore"); };
-  const startGeneration = (gen: Generation) => { setGeneration(gen); setScreen("making"); };
+  // Generation runs in the background on the server: the library shows it building, with a percentage.
+  const startGeneration = () => setScreen("library");
   const openGenerated = (worldId: string, name: string) => {
     setActiveSample({ title: name, place: "YOUR PHOTOGRAPH", date: "", evidence: "LIVE PROVENANCE", image: `/worlds/${worldId}/source.jpg`, note: "Generated from your photograph and classified against it.", quote: "You’re standing where the photographer stood.", worldId });
     setExploreReturn("library");
@@ -90,9 +90,8 @@ export default function App() {
   if (voicePreview) return <Explore world={gizaWorld} evidence={evidence} speaking={speaking} autoEnter voice onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => location.assign(import.meta.env.BASE_URL)} />;
   if (screen === "auth") return <Auth mode={authMode} onBack={() => setScreen("landing")} onAuthenticated={() => setScreen("library")} onModeChange={setAuthMode} />;
   if (screen === "upload") return <Upload onBack={() => setScreen("landing")} onGenerate={startGeneration} onExplore={explore} onAuth={() => openAuth("signup")} onLogin={() => openAuth("login")} />;
-  if (screen === "making") return <Making generation={generation} onLibrary={() => setScreen("library")} onReady={openGenerated} onRetry={() => setScreen("upload")} />;
   if (screen === "samples") return <SamplePicker onBack={() => setScreen("landing")} onChoose={chooseSample} />;
-  if (screen === "library") return <Library onNew={() => setScreen("upload")} onExplore={explore} />;
+  if (screen === "library") return <Library onNew={() => setScreen("upload")} onExplore={explore} onOpen={openGenerated} />;
   if (screen === "explore") return <Explore world={activeSample} evidence={evidence} speaking={speaking} autoEnter={activeSample.voicePreview} voice={!!activeSample.worldId} onToggleEvidence={() => setEvidence((value) => !value)} onExit={() => setScreen(exploreReturn)} />;
   return <Landing onUpload={() => setScreen("upload")} onLogin={() => openAuth("login")} onSignUp={() => openAuth("signup")} onExplore={() => setScreen("samples")} />;
 }
@@ -245,22 +244,17 @@ function Upload({ onBack, onGenerate, onExplore, onAuth, onLogin }: { onBack: ()
     return kind ? { name: file.name, kind, file } : undefined;
   };
   const imageFiles = attachments.filter((a) => a.kind === "image" && a.file);
+  // One click: the server writes the guide, paints the photograph if there is none, and runs Marble, all in the
+  // background. The library shows the world building with a percentage; the user can leave this screen.
   const generate = async () => {
     if (!imageFiles.length && !text.trim()) { setError("Add a photograph, or describe the place."); return; }
     setError("");
     try {
-      const g = guide.trim() || (await composeGuide());
-      let images: WorldImage[];
-      if (imageFiles.length) {
-        setBusy("preparing the photograph…");
-        images = [(await preparePhoto())!]; // the real photograph stays the only provenance source
-      } else {
-        const im = imagined ?? (await paintPhotograph(g));
-        images = [{ name: "imagined.png", mime: im.mime, dataBase64: im.dataBase64 }];
-      }
-      setBusy("sending to Marble…");
+      setBusy("starting…");
+      const photo = await preparePhoto(); // the real photograph stays the only provenance source
+      const images: WorldImage[] = photo ? [photo] : imagined ? [{ name: "imagined.png", mime: imagined.mime, dataBase64: imagined.dataBase64 }] : [];
       const name = text.trim() ? text.trim().split(/[.\n]/)[0].slice(0, 48) : imageFiles[0].name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
-      const jobId = await generateWorld({ name, text: g, model, images, mode: "single" });
+      const jobId = await generateWorld({ name, description: text.trim() || undefined, text: guide.trim() || undefined, model, images, mode: "single" });
       onGenerate({ jobId, name, sources });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -274,7 +268,7 @@ function Upload({ onBack, onGenerate, onExplore, onAuth, onLogin }: { onBack: ()
   const endDrag = (event: React.DragEvent<HTMLDivElement>) => { event.preventDefault(); if (event.currentTarget === event.target) setDragging(false); };
   const dropFiles = (event: React.DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); };
   const sources = [...(text.trim() ? [{ name: text.trim().slice(0, 60), kind: "text" as const }] : []), ...attachments];
-  return <main className="page upload-page"><Header signedOut onUpload={onAuth} onLogin={onLogin} /><section className="upload-layout"><div className="upload-copy"><button className="back-link" onClick={onBack}>← Back</button><h1>Build from<br /><em>what you know.</em></h1><div className="guest-note"><span>GUEST SESSION</span><p>Combine a memory with photographs, video, or written records. Make one world, keep it for seven days, then decide if you want to save it.</p></div><button className="button ghost" onClick={onAuth}>Create an account instead</button></div><div className="upload-panel"><div className={`dropzone ${dragging ? "is-dragging" : ""}`} onDragEnter={beginDrag} onDragOver={beginDrag} onDragLeave={endDrag} onDrop={dropFiles}><span className="upload-mark">✦</span><strong>Build a world from evidence</strong><p className="source-intro">Add a prompt, reference files, or both. Every source helps shape the world.</p><label className="text-source"><span>WHAT SHOULD WE RECONSTRUCT?</span><textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Describe a place, moment, or scene you want to walk through…" /></label><div className="source-divider">ADD REFERENCE MATERIAL</div><input ref={fileInput} className="visually-hidden" type="file" multiple accept="image/jpeg,image/png,image/tiff,image/webp,video/mp4,video/webm,video/quicktime,text/plain,text/markdown,.txt,.md" onChange={(event) => { addFiles(event.target.files ?? []); event.currentTarget.value = ""; }} /><button className="add-source" type="button" onClick={() => fileInput.current?.click()}>+ Add images, video, or text files</button>{attachments.length > 0 && <div className="source-list" aria-label="Attached source material">{attachments.map((source, index) => <span className="source-chip" key={`${source.name}-${index}`}><i>{source.kind}</i>{source.name}<button type="button" aria-label={`Remove ${source.name}`} onClick={() => removeAttachment(index)}>×</button></span>)}</div>}{(imageFiles.length > 0 || text.trim()) && <div className="views-step"><div className="views-head"><span className="eyebrow">WORLD GUIDE</span><button className="quiet-button" type="button" disabled={!!busy} onClick={() => void runStep(composeGuide)}>{guide ? "Rewrite the guide" : "Write the guide"}</button></div><p className="views-note">{imageFiles.length ? "What Marble should build beyond the photograph: the whole scene, described from your photo and your note. Edit it before generating." : "No photograph: the guide describes the place from your note, then a photograph is painted from it and both go to Marble."}</p><textarea className="guide" value={guide} onChange={(e) => { setGuide(e.target.value); setImagined(null); }} placeholder="Written automatically when you generate, or now with the button." />{!imageFiles.length && guide.trim() && <div className="views-head"><span className="eyebrow">PAINTED PHOTOGRAPH</span><button className="quiet-button" type="button" disabled={!!busy} onClick={() => void runStep(() => paintPhotograph(guide.trim()))}>{imagined ? "Repaint" : "Paint it now"}</button></div>}{imagined && <img className="imagined" src={`data:${imagined.mime};base64,${imagined.dataBase64}`} alt="" />}</div>}<div className="gen-options"><label><span>MODEL</span><select value={model} onChange={(e) => setModel(e.target.value as MarbleModel)}><option value="marble-1.0-draft">Draft · 230 credits · 1 min · rough</option><option value="marble-1.1">Marble 1.1 · 1 580 credits · 5 min</option><option value="marble-1.1-plus">Marble 1.1 Plus · up to 3 080 · larger outdoor world</option></select></label><label className="check"><input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} /> trim scan borders (recommended: a paper border becomes a picture frame)</label><span className="credits">{credits === null ? "credits: —" : `credits: ${credits.toLocaleString()} · this run: ${MODEL_CREDITS[model]}`}</span></div>{error && <p className="auth-error" role="alert">{error}</p>}<button className="button text-generate" type="button" disabled={!sources.length || !!busy} onClick={() => void generate()}>{busy ?? `Generate world${sources.length ? ` · ${sources.length} source${sources.length === 1 ? "" : "s"}` : ""}`}</button></div><p className="eyebrow archive-label">OR WALK ONE OF OURS</p><div className="sample-grid">{samples.map((sample) => <button className="sample-card" key={sample.label} onClick={onExplore}><img src={sample.image} alt="" /><span>{sample.label}</span></button>)}</div></div></section><Historian className="upload-historian" hue="green" /></main>;
+  return <main className="page upload-page"><Header signedOut onUpload={onAuth} onLogin={onLogin} /><section className="upload-layout"><div className="upload-copy"><button className="back-link" onClick={onBack}>← Back</button><h1>Build from<br /><em>what you know.</em></h1><div className="guest-note"><span>GUEST SESSION</span><p>Combine a memory with photographs, video, or written records. Make one world, keep it for seven days, then decide if you want to save it.</p></div><button className="button ghost" onClick={onAuth}>Create an account instead</button></div><div className="upload-panel"><div className={`dropzone ${dragging ? "is-dragging" : ""}`} onDragEnter={beginDrag} onDragOver={beginDrag} onDragLeave={endDrag} onDrop={dropFiles}><span className="upload-mark">✦</span><strong>Build a world from evidence</strong><p className="source-intro">Add a prompt, reference files, or both. Every source helps shape the world.</p><label className="text-source"><span>WHAT SHOULD WE RECONSTRUCT?</span><textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Describe a place, moment, or scene you want to walk through…" /></label><div className="source-divider">ADD REFERENCE MATERIAL</div><input ref={fileInput} className="visually-hidden" type="file" multiple accept="image/jpeg,image/png,image/tiff,image/webp,video/mp4,video/webm,video/quicktime,text/plain,text/markdown,.txt,.md" onChange={(event) => { addFiles(event.target.files ?? []); event.currentTarget.value = ""; }} /><button className="add-source" type="button" onClick={() => fileInput.current?.click()}>+ Add images, video, or text files</button>{attachments.length > 0 && <div className="source-list" aria-label="Attached source material">{attachments.map((source, index) => <span className="source-chip" key={`${source.name}-${index}`}><i>{source.kind}</i>{source.name}<button type="button" aria-label={`Remove ${source.name}`} onClick={() => removeAttachment(index)}>×</button></span>)}</div>}{(imageFiles.length > 0 || text.trim()) && <details className="guide-details"><summary>Preview the world guide<span>optional · written for you when you generate</span></summary><div className="views-step"><div className="views-head"><span className="eyebrow">WORLD GUIDE</span><button className="quiet-button" type="button" disabled={!!busy} onClick={() => void runStep(composeGuide)}>{guide ? "Rewrite" : "Write it now"}</button></div><p className="views-note">{imageFiles.length ? "What Marble builds beyond your photograph. Edit it if you like; it is sent as the prompt." : "No photograph: the guide describes the place from your note; a photograph is painted from it, then both go to Marble."}</p><textarea className="guide" value={guide} onChange={(e) => { setGuide(e.target.value); setImagined(null); }} placeholder="Nothing yet. Generate, or write it now." />{!imageFiles.length && guide.trim() && <div className="views-head"><span className="eyebrow">PAINTED PHOTOGRAPH</span><button className="quiet-button" type="button" disabled={!!busy} onClick={() => void runStep(() => paintPhotograph(guide.trim()))}>{imagined ? "Repaint" : "Paint it now"}</button></div>}{imagined && <img className="imagined" src={`data:${imagined.mime};base64,${imagined.dataBase64}`} alt="" />}</div></details>}<div className="gen-options"><label><span>MODEL</span><select value={model} onChange={(e) => setModel(e.target.value as MarbleModel)}><option value="marble-1.0-draft">Draft · 230 credits · 1 min · rough</option><option value="marble-1.1">Marble 1.1 · 1 580 credits · 5 min</option><option value="marble-1.1-plus">Marble 1.1 Plus · up to 3 080 · larger outdoor world</option></select></label><label className="check"><input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} /> trim scan borders (recommended: a paper border becomes a picture frame)</label><span className="credits">{credits === null ? "credits: —" : `credits: ${credits.toLocaleString()} · this run: ${MODEL_CREDITS[model]}`}</span></div>{error && <p className="auth-error" role="alert">{error}</p>}<button className="button text-generate" type="button" disabled={!sources.length || !!busy} onClick={() => void generate()}>{busy ?? `Generate world${sources.length ? ` · ${sources.length} source${sources.length === 1 ? "" : "s"}` : ""}`}</button></div><p className="eyebrow archive-label">OR WALK ONE OF OURS</p><div className="sample-grid">{samples.map((sample) => <button className="sample-card" key={sample.label} onClick={onExplore}><img src={sample.image} alt="" /><span>{sample.label}</span></button>)}</div></div></section><Historian className="upload-historian" hue="green" /></main>;
 }
 
 function SamplePicker({ onBack, onChoose }: { onBack: () => void; onChoose: (sample: SampleWorld) => void }) {
@@ -290,46 +284,39 @@ function SamplePicker({ onBack, onChoose }: { onBack: () => void; onChoose: (sam
   return <main className="page sample-page"><header className="site-header"><Brand /><button className="quiet-button" onClick={onBack}>← Back</button></header><section className="sample-picker"><div className="sample-picker-intro"><h1>Choose a world<br /><em>to step into.</em></h1></div><div className="sample-picker-grid">{all.map((sample) => <button className="sample-picker-card" key={sample.title} onClick={() => onChoose(sample)}><div className="sample-picker-image"><img src={sample.image} alt="" /><span>READY TO WALK</span></div><div className="sample-picker-info"><p>{[sample.place, sample.date].filter(Boolean).join(" · ")}</p><h2>{sample.title}</h2><span>{sample.note}</span><b>{sample.evidence} <i>→</i></b></div></button>)}</div></section></main>;
 }
 
-function Library({ onNew, onExplore }: { onNew: () => void; onExplore: () => void }) {
-  return <main className="page library-page"><Header onUpload={onNew} onLibrary={() => undefined} /><section className="library-intro"><div><h1>Your worlds</h1><p>6 reconstructions · 1 still building</p></div><div className="actions"><button className="select">Recent</button><button className="button compact" onClick={onNew}>New world</button></div></section><section className="world-grid">{worlds.map((world) => <WorldCard key={world.title} world={world} onClick={onExplore} />)}<button className="new-card" onClick={onNew}><span>+</span>Create a world</button></section></main>;
-}
+type LibraryWorld = { id: string; title: string; detail: string; image: string; building?: boolean; failed?: boolean; pct?: number; open?: () => void };
 
-function WorldCard({ world, onClick }: { world: typeof worlds[number]; onClick: () => void }) { return <button className={`world-card ${world.building ? "building" : ""}`} onClick={onClick}><div className="world-image"><img src={world.image} alt="" /><span className="status">{world.building ? "BUILDING · 62%" : "READY"}</span>{world.building && <i />}</div><div className="world-info"><strong>{world.title}</strong><span>{world.detail}</span></div></button>; }
-
-function Making({ generation, onLibrary, onReady, onRetry }: { generation: Generation | null; onLibrary: () => void; onReady: (worldId: string, name: string) => void; onRetry: () => void }) {
-  const [job, setJob] = useState<Job | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+function Library({ onNew, onExplore, onOpen }: { onNew: () => void; onExplore: () => void; onOpen: (worldId: string, name: string) => void }) {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [generated, setGenerated] = useState<{ id: string; name: string }[]>([]);
+  const loadGenerated = () => fetch(`/worlds/index.json?t=${Date.now()}`).then((r) => (r.ok ? r.json() : [])).then((list: { id: string; name: string }[]) => setGenerated(list.filter((w) => !w.id.startsWith("marble-sample")))).catch(() => undefined);
   useEffect(() => {
-    const file = generation?.sources.find((s) => s.kind === "image" && s.file)?.file;
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [generation]);
-  useEffect(() => {
-    if (!generation) return;
     let stop = false;
+    let readyIds = new Set<string>();
     const tick = async () => {
-      try {
-        const j = await getJob(generation.jobId);
-        if (stop) return;
-        setJob(j);
-        if (j.status === "ready" && j.worldId) { onReady(j.worldId, generation.name); return; }
-        if (j.status === "error") return;
-      } catch (e) {
-        if (!stop) setJob((prev) => prev ? { ...prev, status: "error", error: String(e) } : null);
-        return;
-      }
-      if (!stop) setTimeout(tick, 3000);
+      const list = await listJobs();
+      if (stop) return;
+      setJobs(list);
+      const nowReady = new Set(list.filter((j) => j.status === "ready").map((j) => j.id));
+      if ([...nowReady].some((id) => !readyIds.has(id))) void loadGenerated();
+      readyIds = nowReady;
+      if (list.some((j) => j.status !== "ready" && j.status !== "error")) setTimeout(tick, 3000);
     };
+    void loadGenerated();
     void tick();
     return () => { stop = true; };
-  }, [generation]); // eslint-disable-line react-hooks/exhaustive-deps
-  const elapsed = job ? `${Math.floor(job.elapsedS / 60)}:${String(job.elapsedS % 60).padStart(2, "0")}` : "0:00";
-  const failed = job?.status === "error";
-  const pct = job ? ({ queued: 4, uploading: 10, generating: Math.min(85, 15 + job.elapsedS / 4), downloading: 92, ready: 100, error: 100 } as Record<string, number>)[job.status] : 2;
-  return <main className="making-page"><Brand /><div className="making-image"><img src={preview ?? images.mouffetard} alt="Your photograph" /></div><div className="point-field" /><section className="making-copy"><h1>{failed ? "That didn’t work." : "Making your world"}</h1><p>{failed ? job?.error : "Marble is building a walkable world from your photograph. About five minutes for the standard model, about one for a draft."}</p><div className="progress"><i style={{ width: `${pct}%` }} /></div><div className="progress-meta"><span>{(job?.stage ?? "starting").toUpperCase()}{generation ? ` · ${generation.name.toUpperCase()}` : ""}</span><span>{elapsed}</span></div></section><div className="making-actions">{failed ? <button className="button ghost" onClick={onRetry}>Try again</button> : null}<button className="quiet-button" onClick={onLibrary}>Back to library</button></div></main>;
+  }, []);
+  const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const building: LibraryWorld[] = jobs.filter((j) => j.status !== "ready").map((j) => ({ id: `job-${j.id}`, title: j.name, detail: j.status === "error" ? (j.error ?? "failed").slice(0, 60) : `${j.stage.toUpperCase()} · ${clock(j.elapsedS)}`, image: j.hasImage ? `/api/worlds/jobs/${j.id}/image` : images.mouffetard, building: j.status !== "error", failed: j.status === "error", pct: j.progress }));
+  const ready: LibraryWorld[] = generated.map((w) => ({ id: w.id, title: w.name, detail: "GENERATED WORLD · WALKABLE", image: `/worlds/${w.id}/source.jpg`, open: () => onOpen(w.id, w.name) }));
+  const demo: LibraryWorld[] = worlds.map((w) => ({ id: `demo-${w.title}`, title: w.title, detail: w.detail, image: w.image, open: onExplore }));
+  const all = [...building, ...ready, ...demo];
+  const stillBuilding = building.filter((w) => w.building).length;
+  return <main className="page library-page"><Header onUpload={onNew} onLibrary={() => undefined} /><section className="library-intro"><div><h1>Your worlds</h1><p>{ready.length + demo.length} reconstructions{stillBuilding ? ` · ${stillBuilding} still building` : ""}</p></div><div className="actions"><button className="select">Recent</button><button className="button compact" onClick={onNew}>New world</button></div></section><section className="world-grid">{all.map((world) => <WorldCard key={world.id} world={world} onClick={world.open ?? (() => undefined)} />)}<button className="new-card" onClick={onNew}><span>+</span>Create a world</button></section></main>;
 }
+
+function WorldCard({ world, onClick }: { world: LibraryWorld; onClick: () => void }) { return <button className={`world-card ${world.building ? "building" : ""} ${world.failed ? "failed" : ""}`} onClick={onClick} disabled={!!world.building}><div className="world-image"><img src={world.image} alt="" /><span className="status">{world.failed ? "FAILED" : world.building ? `BUILDING · ${world.pct ?? 0}%` : "READY"}</span>{world.building && <i style={{ width: `${world.pct ?? 0}%` }} />}</div><div className="world-info"><strong>{world.title}</strong><span>{world.detail}</span></div></button>; }
+
 
 function Explore({ world, evidence, speaking, autoEnter = false, voice = false, onToggleEvidence, onExit }: { world: SampleWorld; evidence: boolean; speaking: boolean; autoEnter?: boolean; voice?: boolean; onToggleEvidence: () => void; onExit: () => void }) {
   const [counts, setCounts] = useState<EvidenceCounts | null>(null);

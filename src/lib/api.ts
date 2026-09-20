@@ -2,8 +2,14 @@
 import type { PreppedImage } from "./prep";
 
 export type MarbleModel = "marble-1.0-draft" | "marble-1.1" | "marble-1.1-plus";
-export type JobStatus = "queued" | "uploading" | "generating" | "downloading" | "ready" | "error";
-export type Job = { id: string; name: string; model: MarbleModel; status: JobStatus; stage: string; elapsedS: number; worldId?: string; error?: string; credits?: number };
+export type JobStatus = "queued" | "guide" | "painting" | "uploading" | "generating" | "downloading" | "ready" | "error";
+export type Job = { id: string; name: string; model: MarbleModel; status: JobStatus; stage: string; progress: number; elapsedS: number; startedAt: number; hasImage: boolean; worldId?: string; error?: string; credits?: number; guide?: string };
+
+/** Every generation the server knows about, newest first (they run in the background). */
+export async function listJobs(): Promise<Job[]> {
+  const r = await fetch("/api/worlds/jobs");
+  return r.ok ? ((await r.json()) as Job[]) : [];
+}
 
 /** Credit cost per generation (docs.worldlabs.ai/api/pricing), single image, non-pano. */
 export const MODEL_CREDITS: Record<MarbleModel, string> = { "marble-1.0-draft": "230", "marble-1.1": "1 580", "marble-1.1-plus": "1 580–3 080" };
@@ -62,11 +68,11 @@ export async function imagineImage(prompt: string): Promise<{ mime: string; data
 
 export type WorldImage = { name: string; mime: string; dataBase64: string; azimuth?: number };
 
-export async function generateWorld(input: { name: string; text?: string; model: MarbleModel; images: WorldImage[]; mode?: "single" | "azimuth" | "reconstruct" }): Promise<string> {
+export async function generateWorld(input: { name: string; description?: string; text?: string; model: MarbleModel; images: WorldImage[]; mode?: "single" | "azimuth" | "reconstruct" }): Promise<string> {
   const r = await fetch("/api/worlds/generate", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: input.name, text: input.text, model: input.model, mode: input.mode, images: input.images.map((i) => ({ name: i.name, mime: i.mime, dataBase64: i.dataBase64, azimuth: i.azimuth })) }),
+    body: JSON.stringify({ name: input.name, description: input.description, text: input.text, model: input.model, mode: input.mode, images: input.images.map((i) => ({ name: i.name, mime: i.mime, dataBase64: i.dataBase64, azimuth: i.azimuth })) }),
   });
   const body = await r.json();
   if (!r.ok) throw new Error(body.error ?? `generate failed (${r.status})`);
